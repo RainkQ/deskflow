@@ -96,6 +96,13 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="cbKeepCursorOnLeave">
+         <property name="text">
+          <string>Keep cursor visi&amp;ble when mouse leaves screen</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <layout class="QFormLayout" name="formLayout">
          <item row="1" column="1">
           <widget class="QRadioButton" name="rbIconColorful">
