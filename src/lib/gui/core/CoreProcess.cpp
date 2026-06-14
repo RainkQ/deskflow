@@ -407,8 +407,11 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 
   // Pass keep-cursor-on-leave preference to core process via environment variable
   if (m_mode == Settings::CoreMode::Client) {
-    const bool keepCursor = Settings::value(Settings::Client::KeepCursorOnLeave).toBool();
-    qputenv("DESKFLOW_KEEP_CURSOR_ON_LEAVE", keepCursor ? "1" : "0");
+    // Defaults to true: keep cursor visible when mouse leaves screen.
+    // Set client/keepCursorOnLeave=false in config to disable.
+    const auto keepCursor = Settings::value(Settings::Client::KeepCursorOnLeave);
+    const bool enabled = keepCursor.isNull() ? true : keepCursor.toBool();
+    qputenv("DESKFLOW_KEEP_CURSOR_ON_LEAVE", enabled ? "1" : "0");
   }
 
   if (Settings::value(Settings::Log::ToFile).toBool()) {
