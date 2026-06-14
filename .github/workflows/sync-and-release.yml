@@ -127,7 +127,9 @@ jobs:
           cd build
           cmake .. -G Ninja \
             -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_OSX_BUNDLE=ON \
+            -DBUILD_TESTS=OFF
 
       - name: Build Deskflow
         if: steps.merge.outputs.merged == 'true'
@@ -135,11 +137,18 @@ jobs:
           cd build
           ninja Deskflow deskflow-core
 
+      - name: Install with macdeployqt
+        if: steps.merge.outputs.merged == 'true'
+        run: |
+          cd build
+          cmake --install . --prefix /tmp/deskflow-pkg
+          # The self-contained app is now at /tmp/deskflow-pkg/Deskflow.app
+
       - name: Create DMG
         if: steps.merge.outputs.merged == 'true'
         run: |
           hdiutil create -volname Deskflow \
-            -srcfolder build/bin/Deskflow.app \
+            -srcfolder /tmp/deskflow-pkg/Deskflow.app \
             -ov -format UDZO /tmp/Deskflow-macos-arm64.dmg
 
       - name: Generate release tag
