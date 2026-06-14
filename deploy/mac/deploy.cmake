@@ -14,6 +14,22 @@ if (OSX_BUNDLE)
     \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
     -timestamp -codesign=-
   )")
+
+  # Fix plugin RPATHs: macdeployqt leaves plugins pointing to Homebrew's Qt,
+  # which causes duplicate Qt loading and "no Qt platform plugin" errors.
+  # Redirect all plugin RPATHs to the bundled Frameworks directory.
+  install(CODE "
+    file(GLOB_RECURSE plugins
+      \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/PlugIns/*.dylib\")
+    foreach(plugin \${plugins})
+      execute_process(COMMAND install_name_tool
+        -delete_rpath \"@loader_path/../../../../lib\" \"\${plugin}\"
+        ERROR_QUIET)
+      execute_process(COMMAND install_name_tool
+        -add_rpath \"@loader_path/../../Frameworks\" \"\${plugin}\"
+        ERROR_QUIET)
+    endforeach()
+  ")
   set(CPACK_PACKAGE_ICON "${MY_DIR}/dmg-volume.icns")
   set(CPACK_DMG_BACKGROUND_IMAGE "${MY_DIR}/dmg-background.tiff")
   set(CPACK_DMG_DS_STORE_SETUP_SCRIPT "${MY_DIR}/generate_ds_store.applescript")
