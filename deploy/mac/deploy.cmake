@@ -14,6 +14,45 @@ if (OSX_BUNDLE)
     \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
     -timestamp -codesign=-
   )")
+
+  # Fix core binary: macdeployqt only fixes the main executable, not
+  # deskflow-core.  Redirect its Qt dependencies to the bundled Frameworks.
+  install(CODE "
+    set(core_bin \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/MacOS/deskflow-core\")
+    set(qt_prefix \"/opt/homebrew/opt/qtbase\")
+    file(GLOB qt_frameworks
+      \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/Frameworks/Qt*.framework\")
+    foreach(fw \${qt_frameworks})
+      get_filename_component(fw_name \${fw} NAME_WE)
+      set(old_path \"\${qt_prefix}/lib/\${fw_name}.framework/Versions/A/\${fw_name}\")
+      set(new_path \"@executable_path/../Frameworks/\${fw_name}.framework/Versions/A/\${fw_name}\")
+      execute_process(COMMAND install_name_tool
+        -change \"\${old_path}\" \"\${new_path}\" \"\${core_bin}\"
+        ERROR_QUIET)
+    endforeach()
+  ")
+
+  # Fix plugin RPATHs: macdeployqt leaves plugins pointing to Homebrew's Qt,
+  # which causes duplicate Qt loading and "no Qt platform plugin" errors.
+  # Redirect all plugin RPATHs to the bundled Frameworks directory.
+  install(CODE "
+    file(GLOB_RECURSE plugins
+      \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/PlugIns/*.dylib\")
+    foreach(plugin \${plugins})
+      execute_process(COMMAND install_name_tool
+        -delete_rpath \"@loader_path/../../../../lib\" \"\${plugin}\"
+        ERROR_QUIET)
+      execute_process(COMMAND install_name_tool
+        -add_rpath \"@loader_path/../../Frameworks\" \"\${plugin}\"
+        ERROR_QUIET)
+    endforeach()
+  ")
+
+  # Re-sign after rpath fix — modifying dylibs invalidates signatures.
+  install(CODE "execute_process(COMMAND
+    codesign --force --deep --sign -
+    \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
+  )")
   set(CPACK_PACKAGE_ICON "${MY_DIR}/dmg-volume.icns")
   set(CPACK_DMG_BACKGROUND_IMAGE "${MY_DIR}/dmg-background.tiff")
   set(CPACK_DMG_DS_STORE_SETUP_SCRIPT "${MY_DIR}/generate_ds_store.applescript")
