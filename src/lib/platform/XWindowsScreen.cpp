@@ -192,15 +192,17 @@ void XWindowsScreen::enable()
     m_autoRepeat = (keyControl.global_auto_repeat == AutoRepeatModeOn);
     m_keyState->setAutoRepeat(keyControl);
 
-    // move hider window under the cursor center
-    XMoveWindow(m_display, m_window, m_xCenter, m_yCenter);
+    if (!m_keepCursorOnLeave) {
+      // move hider window under the cursor center
+      XMoveWindow(m_display, m_window, m_xCenter, m_yCenter);
 
-    // raise and show the window
-    // FIXME -- take focus?
-    XMapRaised(m_display, m_window);
+      // raise and show the window
+      // FIXME -- take focus?
+      XMapRaised(m_display, m_window);
 
-    // warp the mouse to the cursor center
-    fakeMouseMove(m_xCenter, m_yCenter);
+      // warp the mouse to the cursor center
+      fakeMouseMove(m_xCenter, m_yCenter);
+    }
   }
 }
 
@@ -296,16 +298,32 @@ void XWindowsScreen::leave()
       // XAutoRepeatOn(m_display);
     }
 
-    // move hider window under the cursor center
-    XMoveWindow(m_display, m_window, m_xCenter, m_yCenter);
+    if (!m_keepCursorOnLeave) {
+      // move hider window under the cursor center
+      XMoveWindow(m_display, m_window, m_xCenter, m_yCenter);
+    }
   }
 
-  // raise and show the window
-  XMapRaised(m_display, m_window);
+  if (!m_keepCursorOnLeave) {
+    // raise and show the window
+    XMapRaised(m_display, m_window);
 
-  // grab the mouse and keyboard, if primary and possible
-  if (m_isPrimary && !grabMouseAndKeyboard()) {
-    XUnmapWindow(m_display, m_window);
+    // grab the mouse and keyboard, if primary and possible
+    if (m_isPrimary && !grabMouseAndKeyboard()) {
+      XUnmapWindow(m_display, m_window);
+    }
+
+    // now warp the mouse.  we warp after showing the window so we're
+    // guaranteed to get the mouse leave event and to prevent the
+    // keyboard focus from changing under point-to-focus policies.
+    if (m_isPrimary) {
+      warpCursor(m_xCenter, m_yCenter);
+    } else {
+      // WARN: not using fakeMouseMove() intentionally
+      // forcibly ignore any xinerama quirks, so that `xrandr --panning ... --tracking ...` works
+      XTestFakeMotionEvent(m_display, DefaultScreen(m_display), m_xCenter, m_yCenter, CurrentTime);
+      XFlush(m_display);
+    }
   }
 
   // save current focus
@@ -314,18 +332,6 @@ void XWindowsScreen::leave()
   // take focus
   if (m_isPrimary || !m_preserveFocus) {
     XSetInputFocus(m_display, m_window, RevertToPointerRoot, CurrentTime);
-  }
-
-  // now warp the mouse.  we warp after showing the window so we're
-  // guaranteed to get the mouse leave event and to prevent the
-  // keyboard focus from changing under point-to-focus policies.
-  if (m_isPrimary) {
-    warpCursor(m_xCenter, m_yCenter);
-  } else {
-    // WARN: not using fakeMouseMove() intentionally
-    // forcibly ignore any xinerama quirks, so that `xrandr --panning ... --tracking ...` works
-    XTestFakeMotionEvent(m_display, DefaultScreen(m_display), m_xCenter, m_yCenter, CurrentTime);
-    XFlush(m_display);
   }
 
   // set input context focus to our window
@@ -396,6 +402,7 @@ void XWindowsScreen::resetOptions()
 {
   m_xtestIsXineramaUnaware = true;
   m_preserveFocus = false;
+  m_keepCursorOnLeave = false;
 }
 
 void XWindowsScreen::setOptions(const OptionsList &options)
@@ -411,6 +418,9 @@ void XWindowsScreen::setOptions(const OptionsList &options)
     } else if (options[i] == kOptionScreenPreserveFocus) {
       m_preserveFocus = (options[i + 1] != 0);
       LOG_VERBOSE("preserve focus: %s", m_preserveFocus ? "true" : "false");
+    } else if (options[i] == kOptionKeepCursorOnLeave) {
+      m_keepCursorOnLeave = (options[i + 1] != 0);
+      LOG_VERBOSE("keep cursor on leave: %s", m_keepCursorOnLeave ? "true" : "false");
     }
   }
 }
