@@ -34,6 +34,7 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <ApplicationServices/ApplicationServices.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <dispatch/dispatch.h>
@@ -552,6 +553,56 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
   // Fix for sticky keys
   CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
   CGEventSetFlags(event, modifiers);
+
+  // On mouse down, try to activate the window under the cursor via
+  // Accessibility API.  macOS 27 beta ignores synthetic clicks for
+  // window activation in content areas (title bar clicks still work).
+  if (press) {
+    @try {
+      AXUIElementRef element = nullptr;
+      AXError err = AXUIElementCopyElementAtPosition(
+          AXUIElementCreateSystemWide(), pos.x, pos.y, &element);
+      if (err == kAXErrorSuccess && element) {
+        // Walk up to find the window
+        AXUIElementRef window = element;
+        CFStringRef role = nullptr;
+        while (window) {
+          AXUIElementCopyAttributeValue(window, kAXRoleAttribute, (CFTypeRef *)&role);
+          bool isWindow = role && CFStringCompare(role, kAXWindowRole, 0) == kCFCompareEqualTo;
+          if (role) CFRelease(role);
+          if (isWindow) break;
+
+          AXUIElementRef parent = nullptr;
+          err = AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&parent);
+          if (err != kAXErrorSuccess || !parent) {
+            if (parent) CFRelease(parent);
+            break;
+          }
+          if (window != element) CFRelease(window);
+          window = parent;
+        }
+
+        if (window && window != element) {
+          // Set as main window
+          AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
+          // Raise the window
+          AXUIElementPerformAction(window, kAXRaiseAction);
+          // Bring app to front (window's parent is the application)
+          AXUIElementRef app = nullptr;
+          AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&app);
+          if (app) {
+            AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, kCFBooleanTrue);
+            AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute, window);
+            CFRelease(app);
+          }
+          CFRelease(window);
+        }
+        if (element) CFRelease(element);
+      }
+    } @catch (NSException *e) {
+      // Best-effort; fall through to post the event normally
+    }
+  }
 
   m_buttonState.set(index, state);
   CGEventPost(kCGHIDEventTap, event);
