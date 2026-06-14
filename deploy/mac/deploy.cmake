@@ -15,6 +15,23 @@ if (OSX_BUNDLE)
     -timestamp -codesign=-
   )")
 
+  # Fix core binary: macdeployqt only fixes the main executable, not
+  # deskflow-core.  Redirect its Qt dependencies to the bundled Frameworks.
+  install(CODE "
+    set(core_bin \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/MacOS/deskflow-core\")
+    set(qt_prefix \"/opt/homebrew/opt/qtbase\")
+    file(GLOB qt_frameworks
+      \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/Frameworks/Qt*.framework\")
+    foreach(fw \${qt_frameworks})
+      get_filename_component(fw_name \${fw} NAME_WE)
+      set(old_path \"\${qt_prefix}/lib/\${fw_name}.framework/Versions/A/\${fw_name}\")
+      set(new_path \"@executable_path/../Frameworks/\${fw_name}.framework/Versions/A/\${fw_name}\")
+      execute_process(COMMAND install_name_tool
+        -change \"\${old_path}\" \"\${new_path}\" \"\${core_bin}\"
+        ERROR_QUIET)
+    endforeach()
+  ")
+
   # Fix plugin RPATHs: macdeployqt leaves plugins pointing to Homebrew's Qt,
   # which causes duplicate Qt loading and "no Qt platform plugin" errors.
   # Redirect all plugin RPATHs to the bundled Frameworks directory.
