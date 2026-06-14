@@ -69,8 +69,16 @@ QString statusItemTitle(const QString &text)
 - (void)trigger:(id)sender
 {
   Q_UNUSED(sender);
+  // Defer trigger to the next run loop iteration so the NSMenu tracking
+  // session has fully ended before we show/raise the window.  Otherwise
+  // the window activation races with menu-close focus resolution and
+  // macOS may hand focus to Finder instead.
   if (m_action != nullptr && m_action->isEnabled()) {
-    m_action->trigger();
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (m_action != nullptr && m_action->isEnabled()) {
+        m_action->trigger();
+      }
+    });
   }
 }
 
