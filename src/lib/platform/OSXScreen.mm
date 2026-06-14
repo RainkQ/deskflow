@@ -34,6 +34,7 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <AppKit/NSRunningApplication.h>
 #include <ApplicationServices/ApplicationServices.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
@@ -599,8 +600,11 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
         }
 
         // Bring the owning application to the foreground.
+        // We use a shotgun approach: try every known activation API
+        // since different apps (e.g. WeChat) respond to different ones.
         pid_t pid = 0;
         if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
+          // 1. AX frontmost attribute
           AXUIElementRef app = AXUIElementCreateApplication(pid);
           if (app) {
             AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, kCFBooleanTrue);
@@ -609,8 +613,23 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
             CFRelease(app);
           }
 
-          // AppleScript via System Events.  This is the most reliable
-          // way to force any app (including WeChat) to the foreground.
+          // 2. Carbon Process Manager (works from daemon context)
+          ProcessSerialNumber psn = {0, kNoProcess};
+          if (GetProcessForPID(pid, &psn) == noErr) {
+            SetFrontProcessWithOptions(&psn, kSetFrontProcessFrontWindowOnly);
+          }
+
+          // 3. NSRunningApplication (needs GUI session)
+          @try {
+            NSRunningApplication *ra =
+                [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+            if (ra)
+              [ra activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+          } @catch (NSException *e) {
+            // best-effort
+          }
+
+          // 4. AppleScript System Events
           @try {
             NSString *script =
                 [NSString stringWithFormat:
