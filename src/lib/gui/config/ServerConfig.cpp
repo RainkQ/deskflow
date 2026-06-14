@@ -53,7 +53,8 @@ bool ServerConfig::save(const QString &fileName) const
 bool ServerConfig::operator==(const ServerConfig &sc) const
 {
   return m_Screens == sc.m_Screens && //
-         m_Hotkeys == sc.m_Hotkeys;   //
+         m_Hotkeys == sc.m_Hotkeys &&   //
+         m_KeepCursorOnLeave == sc.m_KeepCursorOnLeave;
 }
 
 void ServerConfig::save(QFile &file) const
@@ -80,6 +81,7 @@ void ServerConfig::commit()
   settings().beginGroup("internalConfig");
   settings().remove("");
 
+  settings().setValue("keepCursorOnLeave", keepCursorOnLeave());
   settings().beginWriteArray("screens");
   for (int i = 0; i < screens().size(); i++) {
     settings().setArrayIndex(i);
@@ -115,6 +117,7 @@ void ServerConfig::recall()
   // ourselves
   setupScreens();
 
+  setKeepCursorOnLeave(settings().value("keepCursorOnLeave", false).toBool());
   int numScreens = settings().beginReadArray("screens");
   Q_ASSERT(numScreens <= screens().size());
   for (int i = 0; i < numScreens; i++) {
@@ -185,6 +188,8 @@ QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config)
 
   outStream << "section: options" << Qt::endl;
 
+  outStream << "\t"
+            << "keepCursorOnLeave = " << (config.keepCursorOnLeave() ? "true" : "false") << Qt::endl;
   for (const Hotkey &hotkey : config.hotkeys())
     outStream << hotkey;
 
