@@ -34,6 +34,7 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <AppKit/NSRunningApplication.h>
 #include <ApplicationServices/ApplicationServices.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
@@ -583,11 +584,10 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
         }
 
         if (window && window != element) {
-          // Set as main window
+          // Set as main window and raise
           AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
-          // Raise the window
           AXUIElementPerformAction(window, kAXRaiseAction);
-          // Bring app to front (window's parent is the application)
+          // Bring app to front
           AXUIElementRef app = nullptr;
           AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&app);
           if (app) {
@@ -596,8 +596,20 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
             CFRelease(app);
           }
           CFRelease(window);
+        } else {
+          // Fallback: if we couldn't find the window in AX hierarchy
+          // (e.g. Electron apps with minimal AX support), try to
+          // activate the app via NSRunningApplication.
+          pid_t pid = 0;
+          if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
+            NSRunningApplication *ra =
+                [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+            if (ra) {
+              [ra activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+            }
+          }
         }
-        if (element) CFRelease(element);
+        CFRelease(element);
       }
     } @catch (NSException *e) {
       // Best-effort; fall through to post the event normally
