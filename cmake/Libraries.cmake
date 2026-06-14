@@ -23,6 +23,9 @@ macro(configure_libs)
   if(UNIX AND NOT APPLE)
       find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS DBus Xml)
   endif()
+  if(APPLE)
+      find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS Svg)
+  endif()
 
   # Define the location of Qt deployment tool
   if(WIN32)

@@ -39,10 +39,20 @@ jobs:
           BASE=$(git merge-base HEAD upstream/master)
           echo "upstream_sha=${UPSTREAM:0:9}" >> $GITHUB_OUTPUT
 
-          if [ "$UPSTREAM" = "$BASE" ]; then
+          # On schedule: skip if already up-to-date
+          # On manual dispatch: always build (even without new upstream changes)
+          if [ "$UPSTREAM" = "$BASE" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "merged=false" >> $GITHUB_OUTPUT
             echo "skipped=true" >> $GITHUB_OUTPUT
-            echo "::notice::Already up-to-date with upstream, skipping build."
+            echo "::notice::Already up-to-date, skipping."
+            exit 0
+          fi
+
+          # Already merged? Pretend it succeeded
+          if [ "$UPSTREAM" = "$BASE" ]; then
+            echo "merged=true" >> $GITHUB_OUTPUT
+            echo "skipped=false" >> $GITHUB_OUTPUT
+            echo "::notice::Manual dispatch — building current state."
             exit 0
           fi
 
@@ -120,7 +130,7 @@ jobs:
 
       - name: Build
         if: steps.merge.outputs.merged == 'true'
-        run: cmake --build build --target Deskflow deskflow-core
+        run: cmake --build build --target Deskflow deskflow-core app_translations
 
       - name: Install (macdeployqt)
         if: steps.merge.outputs.merged == 'true'
@@ -133,12 +143,19 @@ jobs:
             -srcfolder /tmp/deskflow-pkg/Deskflow.app \
             -ov -format UDZO /tmp/Deskflow.dmg
 
+      - name: Generate release tag
+        if: steps.merge.outputs.merged == 'true'
+        id: tag
+        run: |
+          TAG="v$(date +%Y%m%d-%H%M%S)-${{ steps.merge.outputs.upstream_sha }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
       - name: Release
         if: steps.merge.outputs.merged == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.merge.outputs.upstream_sha }}-$(date +%Y%m%d%H%M%S)
-          name: "Deskflow macOS – $(date +%Y-%m-%d)"
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Deskflow macOS – ${{ steps.tag.outputs.tag }}"
           body: |
             **Upstream:** deskflow/deskflow@${{ steps.merge.outputs.upstream_sha }}
             **Branch:** `fix/macos-tray-icon-crash`
