@@ -282,6 +282,7 @@ private:
   // options
   bool m_leaveForegroundOption;
   bool m_relativeMouseMoves = false;
+  bool m_keepCursorOnLeave = false;
 
   IEventQueue *m_events;
 };
