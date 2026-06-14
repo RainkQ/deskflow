@@ -609,6 +609,13 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
             }
             CFRelease(app);
           }
+
+          // Also try Carbon Process Manager as a fallback for apps
+          // with broken/minimal AX support (e.g. WeChat).
+          ProcessSerialNumber psn = {0, kNoProcess};
+          if (GetProcessForPID(pid, &psn) == noErr) {
+            SetFrontProcessWithOptions(&psn, kSetFrontProcessFrontWindowOnly);
+          }
         }
         CFRelease(element);
       }
