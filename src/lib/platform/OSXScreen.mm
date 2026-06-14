@@ -34,6 +34,9 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <AppKit/NSRunningApplication.h>
+#include <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <dispatch/dispatch.h>
@@ -552,6 +555,74 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
   // Fix for sticky keys
   CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
   CGEventSetFlags(event, modifiers);
+
+  // On mouse down, activate the window under the cursor.
+  // macOS 27 beta ignores synthetic CGEvent clicks for window
+  // activation in content areas, so we must activate before posting.
+  // Use CGWindowList to find the window at the click position (works
+  // even for apps that disable Accessibility, like WeChat).
+  if (press) {
+    @try {
+      // Find the frontmost window at the click position via CGWindowList.
+      // We scan all windows and pick the one with the lowest kCGWindowLayer
+      // (frontmost), because CGWindowList order is not guaranteed.
+      // This works even for apps that disable Accessibility (e.g. WeChat).
+      pid_t bestPid = 0;
+      int32_t bestLayer = INT32_MAX;
+      CFArrayRef windows = CGWindowListCopyWindowInfo(
+          kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+      if (windows) {
+        CFIndex count = CFArrayGetCount(windows);
+        for (CFIndex i = 0; i < count; ++i) {
+          CFDictionaryRef win = (CFDictionaryRef)CFArrayGetValueAtIndex(windows, i);
+          int32_t layer = 0;
+          CFNumberRef layerNum = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowLayer);
+          if (layerNum) CFNumberGetValue(layerNum, kCFNumberSInt32Type, &layer);
+          if (layer < 0) continue;  // skip desktop/menubar overlays
+
+          CGRect bounds = {};
+          CFDictionaryRef boundsDict = (CFDictionaryRef)CFDictionaryGetValue(win, kCGWindowBounds);
+          if (boundsDict && CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds)) {
+            if (CGRectContainsPoint(bounds, pos) && layer < bestLayer) {
+              CFNumberRef pidNum = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowOwnerPID);
+              pid_t candidatePid = 0;
+              if (pidNum)
+                CFNumberGetValue(pidNum, kCFNumberIntType, &candidatePid);
+              if (candidatePid > 0) {
+                bestPid = candidatePid;
+                bestLayer = layer;
+              }
+            }
+          }
+        }
+        CFRelease(windows);
+      }
+
+      if (bestPid > 0) {
+        // Activate via official public API first, fall back to SkyLight
+        NSRunningApplication *app =
+            [NSRunningApplication runningApplicationWithProcessIdentifier:bestPid];
+        if (![app activateWithOptions:NSApplicationActivateIgnoringOtherApps]) {
+          static void (*SLPSSetFrontProcessWithOptions)(
+              const ProcessSerialNumber *, uint32_t) = nullptr;
+          static dispatch_once_t once;
+          dispatch_once(&once, ^{
+            void *sky = dlopen(
+                "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW);
+            if (sky)
+              SLPSSetFrontProcessWithOptions =
+                  (void (*)(const ProcessSerialNumber *, uint32_t))
+                  dlsym(sky, "SLPSSetFrontProcessWithOptions");
+          });
+          ProcessSerialNumber psn = {0, kNoProcess};
+          if (GetProcessForPID(bestPid, &psn) == noErr && SLPSSetFrontProcessWithOptions)
+            SLPSSetFrontProcessWithOptions(&psn, 0);
+        }
+      }
+    } @catch (NSException *e) {
+      // Best-effort
+    }
+  }
 
   m_buttonState.set(index, state);
   CGEventPost(kCGHIDEventTap, event);
