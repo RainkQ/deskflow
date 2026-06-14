@@ -30,6 +30,12 @@ if (OSX_BUNDLE)
         ERROR_QUIET)
     endforeach()
   ")
+
+  # Re-sign after rpath fix — modifying dylibs invalidates signatures.
+  install(CODE "execute_process(COMMAND
+    codesign --force --deep --sign -
+    \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
+  )")
   set(CPACK_PACKAGE_ICON "${MY_DIR}/dmg-volume.icns")
   set(CPACK_DMG_BACKGROUND_IMAGE "${MY_DIR}/dmg-background.tiff")
   set(CPACK_DMG_DS_STORE_SETUP_SCRIPT "${MY_DIR}/generate_ds_store.applescript")
