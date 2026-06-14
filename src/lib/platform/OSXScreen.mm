@@ -34,8 +34,8 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
-#include <AppKit/NSRunningApplication.h>
 #include <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <dispatch/dispatch.h>
@@ -555,95 +555,47 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
   CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
   CGEventSetFlags(event, modifiers);
 
-  // On mouse down, try to activate the window under the cursor via
-  // Accessibility API.  macOS 27 beta ignores synthetic clicks for
-  // window activation in content areas (title bar clicks still work).
+  // On mouse down, activate the target window via SkyLight's
+  // private SLPSSetFrontProcessWithOptions.  This is the same
+  // mechanism used by yabai, cua-driver, and Codex Computer Use.
+  // macOS 27 beta ignores synthetic CGEvent clicks for window
+  // activation in content areas, so we must activate the process
+  // before posting the click.
   if (press) {
     @try {
+      pid_t pid = 0;
       AXUIElementRef element = nullptr;
-      AXError err = AXUIElementCopyElementAtPosition(
-          AXUIElementCreateSystemWide(), pos.x, pos.y, &element);
-      if (err == kAXErrorSuccess && element) {
-        // Try to get the window via the top-level element — more
-        // reliable across different UI frameworks than walking parents.
-        AXUIElementRef window = nullptr;
-        AXUIElementCopyAttributeValue(element, kAXTopLevelUIElementAttribute, (CFTypeRef *)&window);
+      if (AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),
+            pos.x, pos.y, &element) == kAXErrorSuccess && element) {
+        AXUIElementGetPid(element, &pid);
+        CFRelease(element);
+      }
 
-        // Fallback: walk up the parent chain
-        if (!window) {
-          window = element;
-          CFRetain(window);
-          while (window) {
-            CFStringRef role = nullptr;
-            AXUIElementCopyAttributeValue(window, kAXRoleAttribute, (CFTypeRef *)&role);
-            bool isWindow = role && CFStringCompare(role, kAXWindowRole, 0) == kCFCompareEqualTo;
-            if (role) CFRelease(role);
-            if (isWindow) break;
-
-            AXUIElementRef parent = nullptr;
-            err = AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&parent);
-            if (err != kAXErrorSuccess || !parent) {
-              if (parent) CFRelease(parent);
-              CFRelease(window);
-              window = nullptr;
-              break;
-            }
-            if (window != element) CFRelease(window);
-            window = parent;
+      if (pid > 0) {
+        static void (*SLPSSetFrontProcessWithOptions)(
+            const ProcessSerialNumber *, uint32_t) = nullptr;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+          void *sky = dlopen(
+              "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+              RTLD_NOW);
+          if (sky) {
+            SLPSSetFrontProcessWithOptions =
+                (void (*)(const ProcessSerialNumber *, uint32_t))
+                dlsym(sky, "SLPSSetFrontProcessWithOptions");
           }
-        }
+        });
 
-        if (window) {
-          AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
-          AXUIElementPerformAction(window, kAXRaiseAction);
-          CFRelease(window);
-        }
-
-        // Bring the owning application to the foreground.
-        // We use a shotgun approach: try every known activation API
-        // since different apps (e.g. WeChat) respond to different ones.
-        pid_t pid = 0;
-        if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
-          // 1. AX frontmost attribute
-          AXUIElementRef app = AXUIElementCreateApplication(pid);
-          if (app) {
-            AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, kCFBooleanTrue);
-            if (window)
-              AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute, window);
-            CFRelease(app);
-          }
-
-          // 2. Carbon Process Manager (works from daemon context)
-          ProcessSerialNumber psn = {0, kNoProcess};
-          if (GetProcessForPID(pid, &psn) == noErr) {
+        ProcessSerialNumber psn = {0, kNoProcess};
+        if (GetProcessForPID(pid, &psn) == noErr) {
+          // Try SkyLight first (most reliable on macOS 27)
+          if (SLPSSetFrontProcessWithOptions) {
+            SLPSSetFrontProcessWithOptions(&psn, 0);
+          } else {
+            // Fallback to public Carbon API
             SetFrontProcessWithOptions(&psn, kSetFrontProcessFrontWindowOnly);
           }
-
-          // 3. NSRunningApplication (needs GUI session)
-          @try {
-            NSRunningApplication *ra =
-                [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-            if (ra)
-              [ra activateWithOptions:NSApplicationActivateIgnoringOtherApps];
-          } @catch (NSException *e) {
-            // best-effort
-          }
-
-          // 4. AppleScript System Events
-          @try {
-            NSString *script =
-                [NSString stringWithFormat:
-                    @"tell application \"System Events\" to set frontmost "
-                    @"of first process whose unix id is %d to true",
-                    pid];
-            NSAppleScript *as = [[NSAppleScript alloc] initWithSource:script];
-            [as executeAndReturnError:nil];
-            [as release];
-          } @catch (NSException *e) {
-            // best-effort
-          }
         }
-        CFRelease(element);
       }
     } @catch (NSException *e) {
       // Best-effort; fall through to post the event normally
