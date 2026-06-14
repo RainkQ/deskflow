@@ -756,10 +756,12 @@ void OSXScreen::enable()
   } else {
     // FIXME -- prevent system from entering power save mode
 
-    hideCursor();
+    if (!m_keepCursorOnLeave) {
+      hideCursor();
 
-    // warp the mouse to the cursor center
-    fakeMouseMove(m_xCenter, m_yCenter);
+      // warp the mouse to the cursor center
+      fakeMouseMove(m_xCenter, m_yCenter);
+    }
 
     // there may be a better way to do this, but we register an event handler even if we're
     // not on the primary display (acting as a client). This way, if a local event comes in
@@ -866,12 +868,14 @@ bool OSXScreen::canLeave()
 
 void OSXScreen::leave()
 {
-  hideCursor();
+  if (!m_keepCursorOnLeave) {
+    hideCursor();
 
-  if (m_isPrimary) {
-    avoidHesitatingCursor();
-    LOG_VERBOSE("centering cursor on leave: %+d, %+d", m_xCenter, m_yCenter);
-    warpCursor(m_xCenter, m_yCenter);
+    if (m_isPrimary) {
+      avoidHesitatingCursor();
+      LOG_VERBOSE("centering cursor on leave: %+d, %+d", m_xCenter, m_yCenter);
+      warpCursor(m_xCenter, m_yCenter);
+    }
   }
 
   // now off screen
@@ -923,12 +927,17 @@ void OSXScreen::screensaver(bool activate)
 
 void OSXScreen::resetOptions()
 {
-  // no options
+  m_keepCursorOnLeave = false;
 }
 
-void OSXScreen::setOptions(const OptionsList &)
+void OSXScreen::setOptions(const OptionsList &options)
 {
-  // no options
+  for (uint32_t i = 0, n = options.size(); i < n; i += 2) {
+    if (options[i] == kOptionKeepCursorOnLeave) {
+      m_keepCursorOnLeave = (options[i + 1] != 0);
+      LOG_VERBOSE("keep cursor on leave: %s", m_keepCursorOnLeave ? "true" : "false");
+    }
+  }
 }
 
 void OSXScreen::setSequenceNumber(uint32_t seqNum)
