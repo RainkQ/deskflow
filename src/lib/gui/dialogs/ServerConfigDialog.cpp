@@ -400,6 +400,7 @@ void ServerConfigDialog::loadFromConfig()
 
   m_win32keepForeground = Settings::value(Settings::Server::Win32KeepForeground).toBool();
   ui->cbWin32KeepForeground->setChecked(m_win32keepForeground);
+  ui->cbKeepCursorOnLeave->setChecked(serverConfig().keepCursorOnLeave());
 
   m_enableSwitchDelay = Settings::value(Settings::Server::EnableSwitchDelay).toBool();
   ui->cbSwitchDelay->setChecked(m_enableSwitchDelay);
@@ -488,6 +489,10 @@ void ServerConfigDialog::initConnections() const
   );
 
   connect(ui->cbRelativeMouseMoves, &QCheckBox::toggled, this, &ServerConfigDialog::toggleRelativeMouseMoves);
+  connect(ui->cbKeepCursorOnLeave, &QCheckBox::toggled, this, [this](bool enabled) {
+    serverConfig().setKeepCursorOnLeave(enabled);
+    onChange();
+  });
   connect(ui->cbEnableClipboard, &QCheckBox::toggled, this, &ServerConfigDialog::toggleClipboard);
   connect(ui->btnBrowseConfigFile, &QPushButton::clicked, this, &ServerConfigDialog::browseConfigFile);
   connect(ui->groupExternalConfig, &QGroupBox::toggled, this, &ServerConfigDialog::toggleExternalConfig);
