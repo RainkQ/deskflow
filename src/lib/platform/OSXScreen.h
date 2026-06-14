@@ -247,6 +247,7 @@ private:
   std::vector<MouseButtonEventMapType> MouseButtonEventMap;
 
   bool m_cursorHidden;
+  bool m_keepCursorOnLeave = false;
 
   // keyboard stuff
   OSXKeyState *m_keyState;
