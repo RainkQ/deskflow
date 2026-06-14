@@ -604,17 +604,24 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
           AXUIElementRef app = AXUIElementCreateApplication(pid);
           if (app) {
             AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, kCFBooleanTrue);
-            if (window) {
+            if (window)
               AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute, window);
-            }
             CFRelease(app);
           }
 
-          // Also try Carbon Process Manager as a fallback for apps
-          // with broken/minimal AX support (e.g. WeChat).
-          ProcessSerialNumber psn = {0, kNoProcess};
-          if (GetProcessForPID(pid, &psn) == noErr) {
-            SetFrontProcessWithOptions(&psn, kSetFrontProcessFrontWindowOnly);
+          // AppleScript via System Events.  This is the most reliable
+          // way to force any app (including WeChat) to the foreground.
+          @try {
+            NSString *script =
+                [NSString stringWithFormat:
+                    @"tell application \"System Events\" to set frontmost "
+                    @"of first process whose unix id is %d to true",
+                    pid];
+            NSAppleScript *as = [[NSAppleScript alloc] initWithSource:script];
+            [as executeAndReturnError:nil];
+            [as release];
+          } @catch (NSException *e) {
+            // best-effort
           }
         }
         CFRelease(element);
