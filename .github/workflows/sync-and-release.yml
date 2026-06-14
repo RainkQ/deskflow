@@ -130,7 +130,7 @@ jobs:
 
       - name: Build
         if: steps.merge.outputs.merged == 'true'
-        run: cmake --build build --target Deskflow deskflow-core
+        run: cmake --build build --target Deskflow deskflow-core app_translations
 
       - name: Install (macdeployqt)
         if: steps.merge.outputs.merged == 'true'
