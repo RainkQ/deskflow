@@ -34,7 +34,6 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
-#include <AppKit/NSRunningApplication.h>
 #include <ApplicationServices/ApplicationServices.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
@@ -564,49 +563,51 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
       AXError err = AXUIElementCopyElementAtPosition(
           AXUIElementCreateSystemWide(), pos.x, pos.y, &element);
       if (err == kAXErrorSuccess && element) {
-        // Walk up to find the window
-        AXUIElementRef window = element;
-        CFStringRef role = nullptr;
-        while (window) {
-          AXUIElementCopyAttributeValue(window, kAXRoleAttribute, (CFTypeRef *)&role);
-          bool isWindow = role && CFStringCompare(role, kAXWindowRole, 0) == kCFCompareEqualTo;
-          if (role) CFRelease(role);
-          if (isWindow) break;
+        // Try to get the window via the top-level element — more
+        // reliable across different UI frameworks than walking parents.
+        AXUIElementRef window = nullptr;
+        AXUIElementCopyAttributeValue(element, kAXTopLevelUIElementAttribute, (CFTypeRef *)&window);
 
-          AXUIElementRef parent = nullptr;
-          err = AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&parent);
-          if (err != kAXErrorSuccess || !parent) {
-            if (parent) CFRelease(parent);
-            break;
+        // Fallback: walk up the parent chain
+        if (!window) {
+          window = element;
+          CFRetain(window);
+          while (window) {
+            CFStringRef role = nullptr;
+            AXUIElementCopyAttributeValue(window, kAXRoleAttribute, (CFTypeRef *)&role);
+            bool isWindow = role && CFStringCompare(role, kAXWindowRole, 0) == kCFCompareEqualTo;
+            if (role) CFRelease(role);
+            if (isWindow) break;
+
+            AXUIElementRef parent = nullptr;
+            err = AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&parent);
+            if (err != kAXErrorSuccess || !parent) {
+              if (parent) CFRelease(parent);
+              CFRelease(window);
+              window = nullptr;
+              break;
+            }
+            if (window != element) CFRelease(window);
+            window = parent;
           }
-          if (window != element) CFRelease(window);
-          window = parent;
         }
 
-        if (window && window != element) {
-          // Set as main window and raise
+        if (window) {
           AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
           AXUIElementPerformAction(window, kAXRaiseAction);
-          // Bring app to front
-          AXUIElementRef app = nullptr;
-          AXUIElementCopyAttributeValue(window, kAXParentAttribute, (CFTypeRef *)&app);
+          CFRelease(window);
+        }
+
+        // Bring the owning application to the foreground.
+        pid_t pid = 0;
+        if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
+          AXUIElementRef app = AXUIElementCreateApplication(pid);
           if (app) {
             AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, kCFBooleanTrue);
-            AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute, window);
-            CFRelease(app);
-          }
-          CFRelease(window);
-        } else {
-          // Fallback: if we couldn't find the window in AX hierarchy
-          // (e.g. Electron apps with minimal AX support), try to
-          // activate the app via NSRunningApplication.
-          pid_t pid = 0;
-          if (AXUIElementGetPid(element, &pid) == kAXErrorSuccess && pid > 0) {
-            NSRunningApplication *ra =
-                [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-            if (ra) {
-              [ra activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+            if (window) {
+              AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute, window);
             }
+            CFRelease(app);
           }
         }
         CFRelease(element);
