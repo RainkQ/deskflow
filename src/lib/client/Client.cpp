@@ -9,6 +9,7 @@
 #include "client/Client.h"
 
 #include "arch/Arch.h"
+#include <cstdlib>
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "client/ServerProxy.h"
@@ -16,6 +17,7 @@
 #include "common/Settings.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/IPlatformScreen.h"
+#include "deskflow/OptionTypes.h"
 #include "deskflow/PacketStreamFilter.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
@@ -330,6 +332,27 @@ void Client::setOptions(const OptionsList &options)
   if (m_enableClipboard && !m_maximumClipboardSize) {
     m_enableClipboard = false;
     LOG_INFO("clipboard sharing is disabled because the server set the maximum clipboard size to 0");
+  }
+
+  // Allow local override of keepCursorOnLeave via environment variable.
+  // This is set by the GUI when running in client mode based on user preference.
+  {
+    const char *env = std::getenv("DESKFLOW_KEEP_CURSOR_ON_LEAVE");
+    if (env && (std::string(env) == "1" || std::string(env) == "true")) {
+      // Check if the option is already in the list from the server.
+      bool hasOption = false;
+      for (auto idx = options.begin(); idx != options.end(); ++idx) {
+        if (*idx == kOptionKeepCursorOnLeave) {
+          hasOption = true;
+          break;
+        }
+      }
+      if (!hasOption) {
+        LOG_INFO("local override: keeping cursor visible on leave");
+        const_cast<OptionsList &>(options).push_back(kOptionKeepCursorOnLeave);
+        const_cast<OptionsList &>(options).push_back(1);
+      }
+    }
   }
 
   m_screen->setOptions(options);

@@ -405,6 +405,12 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 
   qDebug().noquote() << "log level:" << Settings::logLevelText();
 
+  // Pass keep-cursor-on-leave preference to core process via environment variable
+  if (m_mode == Settings::CoreMode::Client) {
+    const bool keepCursor = Settings::value(Settings::Client::KeepCursorOnLeave).toBool();
+    qputenv("DESKFLOW_KEEP_CURSOR_ON_LEAVE", keepCursor ? "1" : "0");
+  }
+
   if (Settings::value(Settings::Log::ToFile).toBool()) {
     const auto logFile = Settings::value(Settings::Log::File).toString();
     QDir(QFileInfo(logFile).absolutePath()).mkpath(".");

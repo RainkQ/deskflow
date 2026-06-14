@@ -43,6 +43,7 @@ public:
     inline static const auto LanguageSync = QStringLiteral("client/languageSync");
     inline static const auto RemoteHost = QStringLiteral("client/remoteHost");
     inline static const auto XdpRestoreToken = QStringLiteral("client/xdpRestoreToken");
+    inline static const auto KeepCursorOnLeave = QStringLiteral("client/keepCursorOnLeave");
   };
   struct Core
   {
@@ -252,6 +253,7 @@ private:
     , Settings::Client::YScrollScale
     , Settings::Client::XScrollScale
     , Settings::Client::XdpRestoreToken
+    , Settings::Client::KeepCursorOnLeave
     , Settings::Core::CoreMode
     , Settings::Core::Interface
     , Settings::Core::LastVersion
@@ -324,6 +326,7 @@ private:
     , Settings::Core::EnableEnterCommand
     , Settings::Core::EnableExitCommand
     , Settings::Client::DynamicConnectionRetry
+    , Settings::Client::KeepCursorOnLeave
     , Settings::Client::InvertYScroll
     , Settings::Client::InvertXScroll
     , Settings::Log::ToFile
