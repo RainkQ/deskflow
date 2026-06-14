@@ -39,10 +39,20 @@ jobs:
           BASE=$(git merge-base HEAD upstream/master)
           echo "upstream_sha=${UPSTREAM:0:9}" >> $GITHUB_OUTPUT
 
-          if [ "$UPSTREAM" = "$BASE" ]; then
+          # On schedule: skip if already up-to-date
+          # On manual dispatch: always build (even without new upstream changes)
+          if [ "$UPSTREAM" = "$BASE" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "merged=false" >> $GITHUB_OUTPUT
             echo "skipped=true" >> $GITHUB_OUTPUT
-            echo "::notice::Already up-to-date with upstream, skipping build."
+            echo "::notice::Already up-to-date, skipping."
+            exit 0
+          fi
+
+          # Already merged? Pretend it succeeded
+          if [ "$UPSTREAM" = "$BASE" ]; then
+            echo "merged=true" >> $GITHUB_OUTPUT
+            echo "skipped=false" >> $GITHUB_OUTPUT
+            echo "::notice::Manual dispatch — building current state."
             exit 0
           fi
 
