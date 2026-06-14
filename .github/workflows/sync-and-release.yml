@@ -143,12 +143,19 @@ jobs:
             -srcfolder /tmp/deskflow-pkg/Deskflow.app \
             -ov -format UDZO /tmp/Deskflow.dmg
 
+      - name: Generate release tag
+        if: steps.merge.outputs.merged == 'true'
+        id: tag
+        run: |
+          TAG="v$(date +%Y%m%d-%H%M%S)-${{ steps.merge.outputs.upstream_sha }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
       - name: Release
         if: steps.merge.outputs.merged == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.merge.outputs.upstream_sha }}-$(date +%Y%m%d%H%M%S)
-          name: "Deskflow macOS – $(date +%Y-%m-%d)"
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Deskflow macOS – ${{ steps.tag.outputs.tag }}"
           body: |
             **Upstream:** deskflow/deskflow@${{ steps.merge.outputs.upstream_sha }}
             **Branch:** `fix/macos-tray-icon-crash`
