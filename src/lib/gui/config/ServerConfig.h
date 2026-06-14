@@ -44,6 +44,10 @@ public:
   {
     return m_Hotkeys;
   }
+  bool keepCursorOnLeave() const
+  {
+    return m_KeepCursorOnLeave;
+  }
 
   bool save(const QString &fileName) const;
   bool screenExists(const QString &screenName) const;
@@ -73,6 +77,10 @@ private:
   {
     m_Screens.append(screen);
   }
+  void setKeepCursorOnLeave(bool on)
+  {
+    m_KeepCursorOnLeave = on;
+  }
   void setConfigFile(const QString &configFile) const;
   void setUseExternalConfig(bool useExternalConfig) const;
   HotkeyList &hotkeys()
@@ -89,6 +97,7 @@ private:
   ScreenList m_Screens;
   int m_columns;
   int m_rows;
+  bool m_KeepCursorOnLeave = false;
 };
 
 QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config);
