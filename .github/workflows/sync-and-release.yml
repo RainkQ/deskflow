@@ -7,16 +7,15 @@ on:
 
 permissions:
   contents: write
-  actions: write
   issues: write
 
 jobs:
   sync-and-build:
-    name: Sync upstream, build, and release
-    runs-on: macos-latest
+    name: Sync upstream, build, release
+    runs-on: macos-15
 
     steps:
-      - name: Checkout fork branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: fix/macos-tray-icon-crash
@@ -33,140 +32,117 @@ jobs:
           git remote add upstream https://github.com/deskflow/deskflow.git
           git fetch upstream master
 
-      - name: Merge upstream changes
+      - name: Merge upstream
         id: merge
         run: |
+          UPSTREAM=$(git rev-parse upstream/master)
+          BASE=$(git merge-base HEAD upstream/master)
+          echo "upstream_sha=${UPSTREAM:0:9}" >> $GITHUB_OUTPUT
+
+          if [ "$UPSTREAM" = "$BASE" ]; then
+            echo "merged=false" >> $GITHUB_OUTPUT
+            echo "skipped=true" >> $GITHUB_OUTPUT
+            echo "::notice::Already up-to-date with upstream, skipping build."
+            exit 0
+          fi
+
           if git merge upstream/master --no-edit -m "auto: merge upstream/master"; then
             echo "merged=true" >> $GITHUB_OUTPUT
-            echo "::notice::Successfully merged upstream/master"
+            echo "skipped=false" >> $GITHUB_OUTPUT
+            echo "::notice::Merged upstream/master (${{ steps.merge.outputs.upstream_sha }})"
           else
             echo "merged=false" >> $GITHUB_OUTPUT
+            echo "skipped=false" >> $GITHUB_OUTPUT
             echo "conflict_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')" >> $GITHUB_OUTPUT
             git merge --abort
           fi
 
-      # ── Conflict notification ──────────────────────────────────
+      # ── Already up-to-date ──
+      - name: Skip (already up-to-date)
+        if: steps.merge.outputs.skipped == 'true'
+        run: echo "Nothing to do."
 
+      # ── Conflict ──
       - name: Create conflict issue
-        if: steps.merge.outputs.merged == 'false'
+        if: steps.merge.outputs.merged == 'false' && steps.merge.outputs.skipped == 'false'
         uses: actions/github-script@v7
         with:
           script: |
-            const conflictFiles = '${{ steps.merge.outputs.conflict_files }}';
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: '⚠️ Merge conflict with upstream/master',
-              body: `Auto-sync failed due to merge conflicts.
-
-            **Conflicting files:**
-            ${conflictFiles.split(' ').filter(f => f).map(f => `- \`${f}\``).join('\n')}
-
-            **Action required:** Manually resolve the conflicts and push.
-
-            **Commands to resolve locally:**
-            \`\`\`bash
-            git checkout fix/macos-tray-icon-crash
-            git fetch upstream master
-            git merge upstream/master
-            # resolve conflicts, then:
-            git push origin fix/macos-tray-icon-crash
-            \`\`\`
-
-            Workflow is now paused until conflicts are resolved.`,
+              body: `Auto-sync failed — merge conflicts with upstream/master.\n\n**Conflicting files:**\n${
+                '${{ steps.merge.outputs.conflict_files }}'.split(' ').filter(f => f).map(f => '- `' + f + '`').join('\n')
+              }\n\n**Resolve locally:**\n\`\`\`bash\ngit checkout fix/macos-tray-icon-crash\ngit fetch upstream master\ngit merge upstream/master\n# fix conflicts, then:\ngit push origin fix/macos-tray-icon-crash\n\`\`\``,
               labels: ['merge-conflict', 'auto-sync']
             });
 
-      - name: Send email notification
-        if: steps.merge.outputs.merged == 'false'
+      - name: Send email
+        if: steps.merge.outputs.merged == 'false' && steps.merge.outputs.skipped == 'false'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "⚠️ Deskflow auto-sync: merge conflict with upstream"
+          subject: "⚠️ Deskflow sync: merge conflict"
           to: ${{ secrets.MAIL_USERNAME }}
           from: Deskflow CI
           body: |
-            Auto-sync failed due to merge conflicts with upstream/master.
-
-            Conflicting files:
-            ${{ steps.merge.outputs.conflict_files }}
-
-            Please resolve manually:
-              git checkout fix/macos-tray-icon-crash
-              git fetch upstream master
-              git merge upstream/master
-              # resolve conflicts & push
-
-            Workflow is paused until conflicts are resolved.
+            Merge conflict with upstream/master.
+            Files: ${{ steps.merge.outputs.conflict_files }}
+            Resolve: https://github.com/RainkQ/deskflow/actions
 
       - name: Fail on conflict
-        if: steps.merge.outputs.merged == 'false'
+        if: steps.merge.outputs.merged == 'false' && steps.merge.outputs.skipped == 'false'
         run: |
-          echo "::error::Merge conflict with upstream/master. Workflow stopped."
+          echo "::error::Merge conflict. Workflow stopped."
           exit 1
 
-      # ── Build & Release (only on successful merge) ─────────────
-
+      # ── Build & Release ──
       - name: Push merge result
         if: steps.merge.outputs.merged == 'true'
-        run: |
-          git push origin fix/macos-tray-icon-crash
+        run: git push origin fix/macos-tray-icon-crash
 
-      - name: Install build dependencies
+      - name: Install Qt
         if: steps.merge.outputs.merged == 'true'
-        run: |
-          brew install cmake ninja qt@6
+        run: brew install qt@6
 
       - name: Configure CMake
         if: steps.merge.outputs.merged == 'true'
         run: |
-          mkdir build
-          cd build
-          cmake .. -G Ninja \
+          cmake -B build -G Ninja \
             -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_OSX_BUNDLE=ON \
             -DBUILD_TESTS=OFF
 
-      - name: Build Deskflow
+      - name: Build
         if: steps.merge.outputs.merged == 'true'
-        run: |
-          cd build
-          ninja Deskflow deskflow-core
+        run: cmake --build build --target Deskflow deskflow-core
 
-      - name: Install with macdeployqt
+      - name: Install (macdeployqt)
         if: steps.merge.outputs.merged == 'true'
-        run: |
-          cd build
-          cmake --install . --prefix /tmp/deskflow-pkg
-          # The self-contained app is now at /tmp/deskflow-pkg/Deskflow.app
+        run: cmake --install build --prefix /tmp/deskflow-pkg
 
-      - name: Create DMG
+      - name: Package DMG
         if: steps.merge.outputs.merged == 'true'
         run: |
           hdiutil create -volname Deskflow \
             -srcfolder /tmp/deskflow-pkg/Deskflow.app \
-            -ov -format UDZO /tmp/Deskflow-macos-arm64.dmg
+            -ov -format UDZO /tmp/Deskflow.dmg
 
-      - name: Generate release tag
-        if: steps.merge.outputs.merged == 'true'
-        id: tag
-        run: |
-          TAG="v$(date +%Y%m%d-%H%M%S)"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
+      - name: Release
         if: steps.merge.outputs.merged == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: "Deskflow macOS – ${{ steps.tag.outputs.tag }}"
+          tag_name: v${{ steps.merge.outputs.upstream_sha }}-$(date +%Y%m%d%H%M%S)
+          name: "Deskflow macOS – $(date +%Y-%m-%d)"
           body: |
-            Automated build with macOS tray icon crash fix.
-            Synced with upstream/master at ${{ github.sha }}.
-          files: /tmp/Deskflow-macos-arm64.dmg
-          draft: false
+            **Upstream:** deskflow/deskflow@${{ steps.merge.outputs.upstream_sha }}
+            **Branch:** `fix/macos-tray-icon-crash`
+
+            Includes macOS tray icon crash fix (native NSStatusItem + NSPopover).
+          files: /tmp/Deskflow.dmg
           prerelease: true
