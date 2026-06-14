@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   actions: write
+  issues: write
 
 jobs:
   sync-and-build:
@@ -37,11 +38,77 @@ jobs:
         run: |
           if git merge upstream/master --no-edit -m "auto: merge upstream/master"; then
             echo "merged=true" >> $GITHUB_OUTPUT
+            echo "::notice::Successfully merged upstream/master"
           else
             echo "merged=false" >> $GITHUB_OUTPUT
-            echo "::warning::Merge conflict with upstream/master. Manual resolution needed."
+            echo "conflict_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')" >> $GITHUB_OUTPUT
             git merge --abort
           fi
+
+      # ── Conflict notification ──────────────────────────────────
+
+      - name: Create conflict issue
+        if: steps.merge.outputs.merged == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conflictFiles = '${{ steps.merge.outputs.conflict_files }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '⚠️ Merge conflict with upstream/master',
+              body: `Auto-sync failed due to merge conflicts.
+
+            **Conflicting files:**
+            ${conflictFiles.split(' ').filter(f => f).map(f => `- \`${f}\``).join('\n')}
+
+            **Action required:** Manually resolve the conflicts and push.
+
+            **Commands to resolve locally:**
+            \`\`\`bash
+            git checkout fix/macos-tray-icon-crash
+            git fetch upstream master
+            git merge upstream/master
+            # resolve conflicts, then:
+            git push origin fix/macos-tray-icon-crash
+            \`\`\`
+
+            Workflow is now paused until conflicts are resolved.`,
+              labels: ['merge-conflict', 'auto-sync']
+            });
+
+      - name: Send email notification
+        if: steps.merge.outputs.merged == 'false'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "⚠️ Deskflow auto-sync: merge conflict with upstream"
+          to: ${{ secrets.MAIL_USERNAME }}
+          from: Deskflow CI
+          body: |
+            Auto-sync failed due to merge conflicts with upstream/master.
+
+            Conflicting files:
+            ${{ steps.merge.outputs.conflict_files }}
+
+            Please resolve manually:
+              git checkout fix/macos-tray-icon-crash
+              git fetch upstream master
+              git merge upstream/master
+              # resolve conflicts & push
+
+            Workflow is paused until conflicts are resolved.
+
+      - name: Fail on conflict
+        if: steps.merge.outputs.merged == 'false'
+        run: |
+          echo "::error::Merge conflict with upstream/master. Workflow stopped."
+          exit 1
+
+      # ── Build & Release (only on successful merge) ─────────────
 
       - name: Push merge result
         if: steps.merge.outputs.merged == 'true'
@@ -58,7 +125,9 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" -DCMAKE_BUILD_TYPE=Release
+          cmake .. -G Ninja \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" \
+            -DCMAKE_BUILD_TYPE=Release
 
       - name: Build Deskflow
         if: steps.merge.outputs.merged == 'true'
@@ -69,7 +138,9 @@ jobs:
       - name: Create DMG
         if: steps.merge.outputs.merged == 'true'
         run: |
-          hdiutil create -volname Deskflow -srcfolder build/bin/Deskflow.app -ov -format UDZO /tmp/Deskflow-macos-arm64.dmg
+          hdiutil create -volname Deskflow \
+            -srcfolder build/bin/Deskflow.app \
+            -ov -format UDZO /tmp/Deskflow-macos-arm64.dmg
 
       - name: Generate release tag
         if: steps.merge.outputs.merged == 'true'
@@ -85,9 +156,8 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Deskflow macOS – ${{ steps.tag.outputs.tag }}"
           body: |
-            Automated build with macOS tray icon crash fix (native NSStatusItem + NSPopover).
-
-            Synced with upstream/master. Built from `fix/macos-tray-icon-crash`.
+            Automated build with macOS tray icon crash fix.
+            Synced with upstream/master at ${{ github.sha }}.
           files: /tmp/Deskflow-macos-arm64.dmg
           draft: false
           prerelease: true
