@@ -34,6 +34,9 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <AppKit/NSRunningApplication.h>
+#include <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <dispatch/dispatch.h>
@@ -552,6 +555,75 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
   // Fix for sticky keys
   CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
   CGEventSetFlags(event, modifiers);
+
+  // On mouse down, activate the window under the cursor.
+  // macOS 27 beta ignores synthetic CGEvent clicks for window activation
+  // in content areas, so we must activate before posting.
+  // We only activate when the frontmost window at click position has
+  // kCGWindowLayer == 0 (normal content window).  Higher layer values
+  // indicate menus, popovers, menu bar, and other system UI that must
+  // not be disturbed by activation during tracking.
+  if (press) {
+    @try {
+      pid_t bestPid = 0;
+      int32_t bestLayer = INT32_MAX;
+      CFArrayRef windows = CGWindowListCopyWindowInfo(
+          kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+      if (windows) {
+        CFIndex count = CFArrayGetCount(windows);
+        for (CFIndex i = 0; i < count; ++i) {
+          CFDictionaryRef win = (CFDictionaryRef)CFArrayGetValueAtIndex(windows, i);
+          int32_t layer = 0;
+          CFNumberRef layerNum = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowLayer);
+          if (layerNum) CFNumberGetValue(layerNum, kCFNumberSInt32Type, &layer);
+          if (layer < 0) continue;
+
+          CGRect bounds = {};
+          CFDictionaryRef boundsDict = (CFDictionaryRef)CFDictionaryGetValue(win, kCGWindowBounds);
+          if (boundsDict && CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds)) {
+            if (CGRectContainsPoint(bounds, pos) && layer < bestLayer) {
+              CFNumberRef pidNum = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowOwnerPID);
+              pid_t candidatePid = 0;
+              if (pidNum)
+                CFNumberGetValue(pidNum, kCFNumberIntType, &candidatePid);
+              if (candidatePid > 0) {
+                bestPid = candidatePid;
+                bestLayer = layer;
+              }
+            }
+          }
+        }
+        CFRelease(windows);
+      }
+
+      // Only activate content windows (layer == 0).
+      // Menus have layer >= 3 (NSPopUpMenuWindowLevel = 101,
+      // NSMainMenuWindowLevel = 24); activating during menu tracking
+      // would steal focus and close the menu.
+      if (bestPid > 0 && bestLayer == 0) {
+        NSRunningApplication *app =
+            [NSRunningApplication runningApplicationWithProcessIdentifier:bestPid];
+        if (![app activateWithOptions:NSApplicationActivateIgnoringOtherApps]) {
+          static void (*SLPSSetFrontProcessWithOptions)(
+              const ProcessSerialNumber *, uint32_t) = nullptr;
+          static dispatch_once_t once;
+          dispatch_once(&once, ^{
+            void *sky = dlopen(
+                "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW);
+            if (sky)
+              SLPSSetFrontProcessWithOptions =
+                  (void (*)(const ProcessSerialNumber *, uint32_t))
+                  dlsym(sky, "SLPSSetFrontProcessWithOptions");
+          });
+          ProcessSerialNumber psn = {0, kNoProcess};
+          if (GetProcessForPID(bestPid, &psn) == noErr && SLPSSetFrontProcessWithOptions)
+            SLPSSetFrontProcessWithOptions(&psn, 0);
+        }
+      }
+    } @catch (NSException *e) {
+      // Best-effort
+    }
+  }
 
   m_buttonState.set(index, state);
   CGEventPost(kCGHIDEventTap, event);
