@@ -368,6 +368,16 @@
            </widget>
           </item>
           <item>
+           <widget class="QCheckBox" name="cbKeepCursorOnLeave">
+            <property name="enabled">
+             <bool>true</bool>
+            </property>
+            <property name="text">
+             <string>Keep cursor &amp;visible when mouse leaves screen</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QCheckBox" name="cbWin32KeepForeground">
             <property name="enabled">
              <bool>true</bool>
@@ -1010,6 +1020,7 @@ Enabling this setting will disable the server config GUI.</string>
   <tabstop>cbHeartbeat</tabstop>
   <tabstop>sbHeartbeat</tabstop>
   <tabstop>cbRelativeMouseMoves</tabstop>
+  <tabstop>cbKeepCursorOnLeave</tabstop>
   <tabstop>tabWidget</tabstop>
  </tabstops>
  <resources/>
