@@ -101,7 +101,11 @@ void PrimaryClient::disable()
 
 void PrimaryClient::enter(int32_t xAbs, int32_t yAbs, uint32_t seqNum, KeyModifierMask mask, bool screensaver)
 {
-  m_screen->setSequenceNumber(seqNum);
+  // Per protocol spec, the primary always sends sequence number 0
+  // for clipboard events. We must not update m_sequenceNumber on the
+  // primary screen, otherwise secondary clients (whose sequence number
+  // may still be 0 or lower than the primary's) get their clipboard
+  // updates rejected as "mis-sequenced".
   if (!screensaver) {
     m_screen->warpCursor(xAbs, yAbs);
   }
