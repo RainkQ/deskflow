@@ -52,18 +52,11 @@ bool ServerConfig::save(const QString &fileName) const
 
 bool ServerConfig::operator==(const ServerConfig &sc) const
 {
-  return m_Screens == sc.m_Screens &&                                   //
-         m_Heartbeat == sc.m_Heartbeat &&                               //
-         m_RelativeMouseMoves == sc.m_RelativeMouseMoves &&             //
-         m_Win32KeepForeground == sc.m_Win32KeepForeground &&           //
-         m_SwitchDelay == sc.m_SwitchDelay &&                           //
-         m_SwitchDoubleTap == sc.m_SwitchDoubleTap &&                   //
-         m_SwitchCornerSize == sc.m_SwitchCornerSize &&                 //
-         m_SwitchCorners == sc.m_SwitchCorners &&                       //
-         m_Hotkeys == sc.m_Hotkeys &&                                   //
-         m_DefaultLockToScreenState == sc.m_DefaultLockToScreenState && //
-         m_DisableLockToScreen == sc.m_DisableLockToScreen &&           //
-         m_ClipboardSharing == sc.m_ClipboardSharing &&                 //
+  return m_Screens == sc.m_Screens &&                   //
+         m_SwitchCornerSize == sc.m_SwitchCornerSize && //
+         m_SwitchCorners == sc.m_SwitchCorners &&       //
+         m_Hotkeys == sc.m_Hotkeys &&                   //
+         m_ClipboardSharing == sc.m_ClipboardSharing && //
          m_ClipboardSharingSize == sc.m_ClipboardSharingSize;
 }
 
@@ -96,14 +89,7 @@ void ServerConfig::commit()
   settings().beginGroup("internalConfig");
   settings().remove("");
 
-  settings().setValue("heartbeat", heartbeat());
-  settings().setValue("relativeMouseMoves", relativeMouseMoves());
-  settings().setValue("win32KeepForeground", win32KeepForeground());
-  settings().setValue("switchDelay", switchDelay());
-  settings().setValue("switchDoubleTap", switchDoubleTap());
   settings().setValue("switchCornerSize", switchCornerSize());
-  settings().setValue("defaultLockToScreenState", defaultLockToScreenState());
-  settings().setValue("disableLockToScreen", disableLockToScreen());
   settings().setValue("clipboardSharing", clipboardSharing());
   settings().setValue("clipboardSharingSize", QVariant::fromValue(clipboardSharingSize()));
 
@@ -144,14 +130,7 @@ void ServerConfig::recall()
   // ourselves
   setupScreens();
 
-  setHeartbeat(settings().value("heartbeat", 5000).toInt());
-  setRelativeMouseMoves(settings().value("relativeMouseMoves", false).toBool());
-  setWin32KeepForeground(settings().value("win32KeepForeground", false).toBool());
-  setSwitchDelay(settings().value("switchDelay", 250).toInt());
-  setSwitchDoubleTap(settings().value("switchDoubleTap", 250).toInt());
   setSwitchCornerSize(settings().value("switchCornerSize").toInt());
-  setDefaultLockToScreenState(settings().value("defaultLockToScreenState", false).toBool());
-  setDisableLockToScreen(settings().value("disableLockToScreen", false).toBool());
   setClipboardSharingSize(
       settings().value("clipboardSharingSize", (int)ServerConfig::defaultClipboardSharingSize()).toULongLong()
   );
@@ -237,31 +216,10 @@ QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config)
   outStream << "end" << Qt::endl << Qt::endl;
 
   outStream << "section: options" << Qt::endl;
-
-  if (Settings::value(Settings::Server::EnableHeatbeat).toBool())
-    outStream << "\t" << "heartbeat = " << config.heartbeat() << Qt::endl;
-
-  outStream << "\t"
-            << "relativeMouseMoves = " << (config.relativeMouseMoves() ? "true" : "false") << Qt::endl;
-  outStream << "\t"
-            << "win32KeepForeground = " << (config.win32KeepForeground() ? "true" : "false") << Qt::endl;
-  outStream << "\t"
-            << "defaultLockToScreenState = " << (config.defaultLockToScreenState() ? "true" : "false") << Qt::endl;
-  outStream << "\t"
-            << "disableLockToScreen = " << (config.disableLockToScreen() ? "true" : "false") << Qt::endl;
   outStream << "\t"
             << "clipboardSharing = " << (config.clipboardSharing() ? "true" : "false") << Qt::endl;
   outStream << "\t"
             << "clipboardSharingSize = " << config.clipboardSharingSize() << Qt::endl;
-
-  if (Settings::value(Settings::Server::EnableSwitchDelay).toBool())
-    outStream << "\t"
-              << "switchDelay = " << config.switchDelay() << Qt::endl;
-
-  if (Settings::value(Settings::Server::EnableSwitchDoubleTap).toBool())
-    outStream << "\t"
-              << "switchDoubleTap = " << config.switchDoubleTap() << Qt::endl;
-
   outStream << "\t"
             << "switchCorners = none ";
   for (int i = 0; i < config.switchCorners().size(); i++)

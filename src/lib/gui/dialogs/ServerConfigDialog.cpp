@@ -77,8 +77,15 @@ void ServerConfigDialog::accept()
   setOriginalServerConfig(serverConfig());
   Settings::setValue(Settings::Server::Protocol, networkProtocolToOption(m_protocol));
   Settings::setValue(Settings::Server::EnableHeatbeat, m_enableHeartbeat);
+  Settings::setValue(Settings::Server::Heartbeat, m_heartbeatRate);
   Settings::setValue(Settings::Server::EnableSwitchDelay, m_enableSwitchDelay);
+  Settings::setValue(Settings::Server::SwitchDelay, m_switchDelay);
+  Settings::setValue(Settings::Server::DefaultLockToComputerState, m_defaultLockToComputerState);
+  Settings::setValue(Settings::Server::DisableLockToComputer, m_disableLockToComputer);
   Settings::setValue(Settings::Server::EnableSwitchDoubleTap, m_enableSwitchDoubleTap);
+  Settings::setValue(Settings::Server::SwitchDoubleTap, m_switchDoubleTap);
+  Settings::setValue(Settings::Server::RelativeMouseMoves, m_relativeMouseMoves);
+  Settings::setValue(Settings::Server::Win32KeepForeground, m_win32keepForeground);
 
   QDialog::accept();
 }
@@ -234,13 +241,17 @@ void ServerConfigDialog::toggleHeartbeat(bool enabled)
 
 void ServerConfigDialog::setHeartbeat(int rate)
 {
-  serverConfig().setHeartbeat(rate);
+  if (rate == m_heartbeatRate)
+    return;
+  m_heartbeatRate = rate;
   onChange();
 }
 
 void ServerConfigDialog::toggleRelativeMouseMoves(bool enabled)
 {
-  serverConfig().setRelativeMouseMoves(enabled);
+  if (m_relativeMouseMoves == enabled)
+    return;
+  m_relativeMouseMoves = enabled;
   onChange();
 }
 
@@ -296,7 +307,9 @@ void ServerConfigDialog::toggleSwitchDoubleTap(bool enable)
 
 void ServerConfigDialog::setSwitchDoubleTap(int within)
 {
-  serverConfig().setSwitchDoubleTap(within);
+  if (m_switchDoubleTap == within)
+    return;
+  m_switchDoubleTap = within;
   onChange();
 }
 
@@ -309,25 +322,33 @@ void ServerConfigDialog::toggleSwitchDelay(bool enable)
 
 void ServerConfigDialog::setSwitchDelay(int delay)
 {
-  serverConfig().setSwitchDelay(delay);
+  if (m_switchDelay == delay)
+    return;
+  m_switchDelay = delay;
   onChange();
 }
 
 void ServerConfigDialog::toggleDefaultLockToScreenState(bool state)
 {
-  serverConfig().setDefaultLockToScreenState(state);
+  if (m_defaultLockToComputerState == state)
+    return;
+  m_defaultLockToComputerState = state;
   onChange();
 }
 
-void ServerConfigDialog::toggleLockToScreen(bool disabled)
+void ServerConfigDialog::toggleLockToComputer(bool disabled)
 {
-  serverConfig().setDisableLockToScreen(disabled);
+  if (m_disableLockToComputer == disabled)
+    return;
+  m_disableLockToComputer = disabled;
   onChange();
 }
 
 void ServerConfigDialog::toggleWin32Foreground(bool enabled)
 {
-  serverConfig().setWin32KeepForeground(enabled);
+  if (m_win32keepForeground == enabled)
+    return;
+  m_win32keepForeground = enabled;
   onChange();
 }
 
@@ -347,10 +368,10 @@ void ServerConfigDialog::toggleExternalConfig(bool checked)
   ui->widgetExternalConfigControls->setEnabled(checked);
   ui->tabWidget->setTabEnabled(0, !checked);
   ui->tabWidget->setTabEnabled(1, !checked);
-  ui->groupMisc->setEnabled(!checked);
+  ui->cbEnableClipboard->setEnabled(!checked);
+  ui->label_7->setEnabled(checked ? !checked : ui->cbEnableClipboard->isChecked());
+  ui->sbClipboardSizeLimit->setEnabled(checked ? !checked : ui->cbEnableClipboard->isChecked());
   ui->groupCorners->setEnabled(!checked);
-  ui->groupSwitch->setEnabled(!checked);
-  ui->widgetHeartbeat->setEnabled(!checked);
   serverConfig().setUseExternalConfig(checked);
   onChange();
 }
@@ -385,19 +406,29 @@ void ServerConfigDialog::loadFromConfig()
   m_enableHeartbeat = Settings::value(Settings::Server::EnableHeatbeat).toBool();
   ui->cbHeartbeat->setChecked(m_enableHeartbeat);
   ui->sbHeartbeat->setEnabled(ui->cbHeartbeat->isChecked());
-  ui->sbHeartbeat->setValue(serverConfig().heartbeat());
-  ui->cbRelativeMouseMoves->setChecked(serverConfig().relativeMouseMoves());
-  ui->cbWin32KeepForeground->setChecked(serverConfig().win32KeepForeground());
+
+  m_heartbeatRate = Settings::value(Settings::Server::Heartbeat).toInt();
+  ui->sbHeartbeat->setValue(m_heartbeatRate);
+
+  m_relativeMouseMoves = Settings::value(Settings::Server::RelativeMouseMoves).toBool();
+  ui->cbRelativeMouseMoves->setChecked(m_relativeMouseMoves);
+
+  m_win32keepForeground = Settings::value(Settings::Server::Win32KeepForeground).toBool();
+  ui->cbWin32KeepForeground->setChecked(m_win32keepForeground);
 
   m_enableSwitchDelay = Settings::value(Settings::Server::EnableSwitchDelay).toBool();
   ui->cbSwitchDelay->setChecked(m_enableSwitchDelay);
-  ui->sbSwitchDelay->setValue(serverConfig().switchDelay());
   ui->sbSwitchDelay->setEnabled(ui->cbSwitchDelay->isChecked());
+
+  m_switchDelay = Settings::value(Settings::Server::SwitchDelay).toInt();
+  ui->sbSwitchDelay->setValue(m_switchDelay);
 
   m_enableSwitchDoubleTap = Settings::value(Settings::Server::EnableSwitchDoubleTap).toBool();
   ui->cbSwitchDoubleTap->setChecked(m_enableSwitchDoubleTap);
-  ui->sbSwitchDoubleTap->setValue(serverConfig().switchDoubleTap());
   ui->sbSwitchDoubleTap->setEnabled(ui->cbSwitchDoubleTap->isChecked());
+
+  m_switchDoubleTap = Settings::value(Settings::Server::SwitchDoubleTap).toInt();
+  ui->sbSwitchDoubleTap->setValue(m_switchDoubleTap);
 
   ui->groupExternalConfig->setChecked(serverConfig().useExternalConfig());
 
@@ -409,9 +440,13 @@ void ServerConfigDialog::loadFromConfig()
   ui->cbCornerBottomLeft->setChecked(serverConfig().switchCorner(static_cast<int>(BottomLeft)));
   ui->cbCornerBottomRight->setChecked(serverConfig().switchCorner(static_cast<int>(BottomRight)));
   ui->sbSwitchCornerSize->setValue(serverConfig().switchCornerSize());
-  ui->cbDefaultLockToScreenState->setChecked(serverConfig().defaultLockToScreenState());
 
-  ui->cbDisableLockToScreen->setChecked(serverConfig().disableLockToScreen());
+  m_defaultLockToComputerState = Settings::value(Settings::Server::DefaultLockToComputerState).toBool();
+  ui->cbDefaultLockToScreenState->setChecked(m_defaultLockToComputerState);
+
+  m_disableLockToComputer = Settings::value(Settings::Server::DisableLockToComputer).toBool();
+  ui->cbDisableLockToComputer->setChecked(m_disableLockToComputer);
+
   ui->cbEnableClipboard->setChecked(serverConfig().clipboardSharing());
 
   auto clipboardSharingSizeM = static_cast<int>(serverConfig().clipboardSharingSize() / 1024);
@@ -491,7 +526,7 @@ void ServerConfigDialog::initConnections()
   connect(
       ui->cbDefaultLockToScreenState, &QCheckBox::toggled, this, &ServerConfigDialog::toggleDefaultLockToScreenState
   );
-  connect(ui->cbDisableLockToScreen, &QCheckBox::toggled, this, &ServerConfigDialog::toggleLockToScreen);
+  connect(ui->cbDisableLockToComputer, &QCheckBox::toggled, this, &ServerConfigDialog::toggleLockToComputer);
   connect(&m_screenSetupModel, &ScreenSetupModel::screensChanged, this, &ServerConfigDialog::onChange);
 }
 
@@ -516,8 +551,15 @@ void ServerConfigDialog::onChange()
       m_originalServerConfigUsesExternalFile == serverConfig().configFile() &&
       m_protocol == Settings::networkProtocol() &&
       m_enableHeartbeat == Settings::value(Settings::Server::EnableHeatbeat).toBool() &&
+      m_heartbeatRate == Settings::value(Settings::Server::Heartbeat).toInt() &&
       m_enableSwitchDelay == Settings::value(Settings::Server::EnableSwitchDelay).toBool() &&
-      m_enableSwitchDoubleTap == Settings::value(Settings::Server::EnableSwitchDoubleTap).toBool();
+      m_switchDelay == Settings::value(Settings::Server::SwitchDelay).toInt() &&
+      m_enableSwitchDoubleTap == Settings::value(Settings::Server::EnableSwitchDoubleTap).toBool() &&
+      m_switchDoubleTap == Settings::value(Settings::Server::SwitchDoubleTap).toInt() &&
+      m_relativeMouseMoves == Settings::value(Settings::Server::RelativeMouseMoves).toBool() &&
+      m_win32keepForeground == Settings::value(Settings::Server::Win32KeepForeground).toBool() &&
+      m_disableLockToComputer == Settings::value(Settings::Server::DisableLockToComputer).toBool() &&
+      m_defaultLockToComputerState == Settings::value(Settings::Server::DefaultLockToComputerState).toBool();
   ui->buttonBox->button(QDialogButtonBox::Ok)
       ->setEnabled(!isAppConfigDataEqual || !(m_originalServerConfig == m_serverConfig));
 }

@@ -104,6 +104,8 @@ public:
   };
   struct Server
   {
+    inline static const auto DefaultLockToComputerState = QStringLiteral("server/defaultLockToComputerState");
+    inline static const auto DisableLockToComputer = QStringLiteral("server/disableLockToComputer");
     inline static const auto EnableHeatbeat = QStringLiteral("server/enableHeatbeat");
     inline static const auto EnableSwitchDelay = QStringLiteral("server/enableSwitchDelay");
     inline static const auto EnableSwitchDoubleTap = QStringLiteral("server/enableSwitchDoubleTap");
@@ -111,7 +113,12 @@ public:
     inline static const auto ExternalConfigFile = QStringLiteral("server/externalConfigFile");
     inline static const auto GridHeight = QStringLiteral("server/gridHeight");
     inline static const auto GridWidth = QStringLiteral("server/gridWidth");
+    inline static const auto Heartbeat = QStringLiteral("server/heartbeat");
     inline static const auto Protocol = QStringLiteral("server/protocol");
+    inline static const auto RelativeMouseMoves = QStringLiteral("server/relativeMouseMoves");
+    inline static const auto SwitchDelay = QStringLiteral("server/switchDelay");
+    inline static const auto SwitchDoubleTap = QStringLiteral("server/switchDoubleTap");
+    inline static const auto Win32KeepForeground = QStringLiteral("server/win32KeepForeground");
     inline static const auto XdpRestoreToken = QStringLiteral("server/xdpRestoreToken");
   };
 
@@ -246,6 +253,8 @@ private:
     , Settings::Security::CheckPeers
     , Settings::Security::KeySize
     , Settings::Security::TlsEnabled
+    , Settings::Server::DefaultLockToComputerState
+    , Settings::Server::DisableLockToComputer
     , Settings::Server::EnableHeatbeat
     , Settings::Server::EnableSwitchDelay
     , Settings::Server::EnableSwitchDoubleTap
@@ -253,7 +262,12 @@ private:
     , Settings::Server::ExternalConfigFile
     , Settings::Server::GridHeight
     , Settings::Server::GridWidth
+    , Settings::Server::Heartbeat
     , Settings::Server::Protocol
+    , Settings::Server::RelativeMouseMoves
+    , Settings::Server::SwitchDelay
+    , Settings::Server::SwitchDoubleTap
+    , Settings::Server::Win32KeepForeground
     , Settings::Server::XdpRestoreToken
   };
 
@@ -274,10 +288,13 @@ private:
     , Settings::Client::InvertXScroll
     , Settings::Log::ToFile
     , Settings::Log::GuiDebug
+    , Settings::Server::DefaultLockToComputerState
+    , Settings::Server::DisableLockToComputer
     , Settings::Server::EnableHeatbeat
     , Settings::Server::EnableSwitchDelay
     , Settings::Server::EnableSwitchDoubleTap
     , Settings::Server::ExternalConfig
+    , Settings::Server::RelativeMouseMoves
   };
 
   // When checking the default values this list contains the ones that default to true.
@@ -290,6 +307,7 @@ private:
     , Settings::Gui::SymbolicTrayIcon
     , Settings::Security::TlsEnabled
     , Settings::Security::CheckPeers
+    , Settings::Server::Win32KeepForeground
   };
 
   // Settings saved in our State file
@@ -302,12 +320,19 @@ private:
   };
   // Contains settings removed from server-configuration file
   inline static const QStringList m_oldServerConfigKeys = {
-      QStringLiteral("internalConfig/hasHeartbeat")
+      QStringLiteral("internalConfig/defaultLockToScreenState")
+    , QStringLiteral("internalConfig/disableLockToScreen")
+    , QStringLiteral("internalConfig/hasHeartbeat")
     , QStringLiteral("internalConfig/hasSwitchDelay")
     , QStringLiteral("internalConfig/hasSwitchDoubleTap")
+    , QStringLiteral("internalConfig/heartbeat")
     , QStringLiteral("internalConfig/protocol")
     , QStringLiteral("internalConfig/numColumns")
     , QStringLiteral("internalConfig/numRows")
+    , QStringLiteral("interlanConfig/relativeMouseMoves")
+    , QStringLiteral("internalConfig/switchDelay")
+    , QStringLiteral("internalConfig/switchDoubleTap")
+    , QStringLiteral("internalConfig/win32KeepForeground")
   };
   // clang-format on
 };
