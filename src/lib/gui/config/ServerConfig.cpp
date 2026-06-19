@@ -55,9 +55,7 @@ bool ServerConfig::operator==(const ServerConfig &sc) const
   return m_Screens == sc.m_Screens &&                   //
          m_SwitchCornerSize == sc.m_SwitchCornerSize && //
          m_SwitchCorners == sc.m_SwitchCorners &&       //
-         m_Hotkeys == sc.m_Hotkeys &&                   //
-         m_ClipboardSharing == sc.m_ClipboardSharing && //
-         m_ClipboardSharingSize == sc.m_ClipboardSharingSize;
+         m_Hotkeys == sc.m_Hotkeys;                     //
 }
 
 void ServerConfig::save(QFile &file) const
@@ -90,9 +88,6 @@ void ServerConfig::commit()
   settings().remove("");
 
   settings().setValue("switchCornerSize", switchCornerSize());
-  settings().setValue("clipboardSharing", clipboardSharing());
-  settings().setValue("clipboardSharingSize", QVariant::fromValue(clipboardSharingSize()));
-
   writeSettings(settings(), switchCorners(), "switchCorner");
 
   settings().beginWriteArray("screens");
@@ -131,11 +126,6 @@ void ServerConfig::recall()
   setupScreens();
 
   setSwitchCornerSize(settings().value("switchCornerSize").toInt());
-  setClipboardSharingSize(
-      settings().value("clipboardSharingSize", (int)ServerConfig::defaultClipboardSharingSize()).toULongLong()
-  );
-  setClipboardSharing(settings().value("clipboardSharing", true).toBool());
-
   readSettings(settings(), switchCorners(), "switchCorner", false, static_cast<int>(NumSwitchCorners));
 
   int numScreens = settings().beginReadArray("screens");
@@ -216,10 +206,6 @@ QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config)
   outStream << "end" << Qt::endl << Qt::endl;
 
   outStream << "section: options" << Qt::endl;
-  outStream << "\t"
-            << "clipboardSharing = " << (config.clipboardSharing() ? "true" : "false") << Qt::endl;
-  outStream << "\t"
-            << "clipboardSharingSize = " << config.clipboardSharingSize() << Qt::endl;
   outStream << "\t"
             << "switchCorners = none ";
   for (int i = 0; i < config.switchCorners().size(); i++)
@@ -351,26 +337,6 @@ bool ServerConfig::fixNoServer(const QString &name, int &index)
   }
 
   return fixed;
-}
-
-size_t ServerConfig::defaultClipboardSharingSize()
-{
-  return 3 * 1024; // 3 MiB
-}
-
-size_t ServerConfig::setClipboardSharingSize(size_t size)
-{
-  if (size) {
-    size += 512; // Round up to the nearest megabyte
-    size /= 1024;
-    size *= 1024;
-    setClipboardSharing(true);
-  } else {
-    setClipboardSharing(false);
-  }
-  using std::swap;
-  swap(size, m_ClipboardSharingSize);
-  return size;
 }
 
 QSettingsProxy &ServerConfig::settings()

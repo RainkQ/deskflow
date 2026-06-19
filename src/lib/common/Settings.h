@@ -56,7 +56,6 @@ public:
     inline static const auto Display = QStringLiteral("core/display");
     inline static const auto UseHooks = QStringLiteral("core/useHooks");
     inline static const auto Language = QStringLiteral("core/language");
-    inline static const auto UseWlClipboard = QStringLiteral("core/wlClipboard");
     inline static const auto EnableEnterCommand = QStringLiteral("core/enableEnterCommand");
     inline static const auto ScreenEnterCommand = QStringLiteral("core/enterCommand");
     inline static const auto EnableExitCommand = QStringLiteral("core/enableExitCommand");
@@ -104,8 +103,10 @@ public:
   };
   struct Server
   {
+    inline static const auto ClipboardSize = QStringLiteral("server/clipboardSize");
     inline static const auto DefaultLockToComputerState = QStringLiteral("server/defaultLockToComputerState");
     inline static const auto DisableLockToComputer = QStringLiteral("server/disableLockToComputer");
+    inline static const auto EnableClipboard = QStringLiteral("server/enableClipboard");
     inline static const auto EnableHeatbeat = QStringLiteral("server/enableHeatbeat");
     inline static const auto EnableSwitchDelay = QStringLiteral("server/enableSwitchDelay");
     inline static const auto EnableSwitchDoubleTap = QStringLiteral("server/enableSwitchDoubleTap");
@@ -226,7 +227,6 @@ private:
     , Settings::Core::ComputerName
     , Settings::Core::Display
     , Settings::Core::UseHooks
-    , Settings::Core::UseWlClipboard
     , Settings::Core::Language
     , Settings::Daemon::ConfigFile
     , Settings::Daemon::Elevate
@@ -253,8 +253,10 @@ private:
     , Settings::Security::CheckPeers
     , Settings::Security::KeySize
     , Settings::Security::TlsEnabled
+    , Settings::Server::ClipboardSize
     , Settings::Server::DefaultLockToComputerState
     , Settings::Server::DisableLockToComputer
+    , Settings::Server::EnableClipboard
     , Settings::Server::EnableHeatbeat
     , Settings::Server::EnableSwitchDelay
     , Settings::Server::EnableSwitchDoubleTap
@@ -280,7 +282,6 @@ private:
     , Settings::Gui::ShowVersionInTitle
     , Settings::Gui::IgnoreMissingKeyboardLayouts
     , Settings::Core::PreventSleep
-    , Settings::Core::UseWlClipboard
     , Settings::Core::EnableEnterCommand
     , Settings::Core::EnableExitCommand
     , Settings::Client::DynamicConnectionRetry
@@ -307,6 +308,7 @@ private:
     , Settings::Gui::SymbolicTrayIcon
     , Settings::Security::TlsEnabled
     , Settings::Security::CheckPeers
+    , Settings::Server::EnableClipboard
     , Settings::Server::Win32KeepForeground
   };
 
@@ -322,6 +324,8 @@ private:
   inline static const QStringList m_oldServerConfigKeys = {
       QStringLiteral("internalConfig/defaultLockToScreenState")
     , QStringLiteral("internalConfig/disableLockToScreen")
+    , QStringLiteral("internalConfig/clipboardSharing")
+    , QStringLiteral("internalConfig/clipboardSharingSize")
     , QStringLiteral("internalConfig/hasHeartbeat")
     , QStringLiteral("internalConfig/hasSwitchDelay")
     , QStringLiteral("internalConfig/hasSwitchDoubleTap")

@@ -56,15 +56,6 @@ public:
   {
     return m_Hotkeys;
   }
-  bool clipboardSharing() const
-  {
-    return m_ClipboardSharing;
-  }
-  size_t clipboardSharingSize() const
-  {
-    return m_ClipboardSharingSize;
-  }
-  static size_t defaultClipboardSharingSize();
 
   bool save(const QString &fileName) const;
   bool screenExists(const QString &screenName) const;
@@ -102,13 +93,8 @@ private:
   {
     m_SwitchCornerSize = val;
   }
-  void setClipboardSharing(bool on)
-  {
-    m_ClipboardSharing = on;
-  }
   void setConfigFile(const QString &configFile) const;
   void setUseExternalConfig(bool useExternalConfig) const;
-  size_t setClipboardSharingSize(size_t size);
   QList<bool> &switchCorners()
   {
     return m_SwitchCorners;
@@ -123,14 +109,12 @@ private:
 
 private:
   int m_SwitchCornerSize = 0;
-  bool m_ClipboardSharing = true;
   QList<bool> m_SwitchCorners;
   HotkeyList m_Hotkeys;
 
   ScreenList m_Screens;
   int m_columns;
   int m_rows;
-  size_t m_ClipboardSharingSize = defaultClipboardSharingSize();
 };
 
 QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config);

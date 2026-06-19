@@ -97,17 +97,19 @@ protected:
 
 private:
   void loadFromConfig();
-  void initConnections();
+  void initConnections() const;
   std::unique_ptr<Ui::ServerConfigDialog> ui;
   QString m_message = "";
   int m_columns;
   int m_rows;
   ServerConfig &m_originalServerConfig;
   NetworkProtocol m_protocol;
+  bool m_enableClipboard;
   bool m_enableHeartbeat;
   int m_heartbeatRate;
   int m_switchDelay;
   int m_switchDoubleTap;
+  uint m_clipboardSize;
   bool m_relativeMouseMoves;
   bool m_enableSwitchDelay;
   bool m_enableSwitchDoubleTap;
