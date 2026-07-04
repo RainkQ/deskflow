@@ -455,9 +455,11 @@ KeyID ServerProxy::translateKey(KeyID id) const
   }
 
   if (id2 != kKeyModifierIDNull) {
-    return s_translationTable[m_modifierTranslationTable[id2]][side];
+    return std::clamp<KeyModifierMask>(
+        s_translationTable[m_modifierTranslationTable[id2]][side], 0, kKeyModifierIDLast - 1
+    );
   } else {
-    return id;
+    return std::clamp<KeyModifierMask>(id, 0, kKeyModifierIDLast - 1);
   }
 }
 
@@ -487,7 +489,7 @@ KeyModifierMask ServerProxy::translateModifierMask(KeyModifierMask mask) const
   if ((mask & KeyModifierSuper) != 0) {
     newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDSuper]];
   }
-  return newMask;
+  return std::clamp<KeyModifierMask>(newMask, 0, kKeyModifierIDLast - 1);
 }
 
 void ServerProxy::enter()
@@ -528,24 +530,29 @@ void ServerProxy::leave()
 void ServerProxy::setClipboard()
 {
   // parse
-  static std::string dataCached;
   ClipboardID id;
   uint32_t seq;
 
-  auto r = ClipboardChunk::assemble(m_stream, dataCached, id, seq);
+  auto r = ClipboardChunk::assemble(
+      m_stream, m_clipboardDataCached, id, seq, m_clipboardChunkState, m_client->getMaximumClipboardReceiveSizeBytes()
+  );
 
   if (r == TransferState::Started) {
-    size_t size = ClipboardChunk::getExpectedSize();
-    LOG_DEBUG("receiving clipboard %d size=%d", id, size);
+    size_t size = ClipboardChunk::getExpectedSize(m_clipboardChunkState);
+    LOG_DEBUG("receiving clipboard %d size=%zu", id, size);
   } else if (r == TransferState::Finished) {
-    LOG_DEBUG("received clipboard %d size=%d", id, dataCached.size());
+    LOG_DEBUG("received clipboard %d size=%zu", id, m_clipboardDataCached.size());
 
     // forward
     Clipboard clipboard;
-    clipboard.unmarshall(dataCached, 0);
+    clipboard.unmarshall(m_clipboardDataCached, 0);
     m_client->setClipboard(id, &clipboard);
+    m_clipboardDataCached.clear();
+    m_clipboardDataCached.shrink_to_fit();
 
     LOG_INFO("clipboard was updated");
+  } else if (r == TransferState::Error) {
+    m_client->disconnect("invalid clipboard data from server");
   }
 }
 
@@ -802,7 +809,7 @@ void ServerProxy::setOptions()
     }
 
     if (id != kKeyModifierIDNull) {
-      m_modifierTranslationTable[id] = options[i + 1];
+      m_modifierTranslationTable[id] = std::clamp<KeyModifierMask>(options[i + 1], 0, kKeyModifierIDLast - 1);
       LOG_VERBOSE("modifier %d mapped to %d", id, m_modifierTranslationTable[id]);
     }
   }
