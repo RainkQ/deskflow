@@ -199,6 +199,11 @@ size_t Client::getMaximumClipboardReceiveSizeBytes() const
   return m_maximumClipboardReceiveSize;
 }
 
+size_t Client::clipboardReceiveLimitBytes(size_t limitKilobytes)
+{
+  return limitKilobytes * 1024;
+}
+
 void *Client::getEventTarget() const
 {
   return m_screen->getEventTarget();
@@ -344,6 +349,7 @@ void Client::setOptions(const OptionsList &options)
       index++;
       if (index != options.end()) {
         m_maximumClipboardSize = *index;
+        m_maximumClipboardReceiveSize = clipboardReceiveLimitBytes(static_cast<size_t>(*index));
       }
     } else if (id == kOptionRelativeMouseMoves) {
       index++;

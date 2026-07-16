@@ -162,6 +162,7 @@ public:
     return m_resolvedAddressesCount;
   }
   size_t getMaximumClipboardReceiveSizeBytes() const;
+  static size_t clipboardReceiveLimitBytes(size_t limitKilobytes);
 
   //@}
 

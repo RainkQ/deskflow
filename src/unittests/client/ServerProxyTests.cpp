@@ -332,4 +332,12 @@ void ServerProxyTests::parseHandshakeMessage_protocolError_queuesRefusalRequest(
   QCOMPARE(QString::fromUtf8(request->message()), QStringLiteral("server reported a protocol error"));
 }
 
+void ServerProxyTests::clipboardReceiveLimit_serverKilobytes_convertsToBytes()
+{
+  constexpr size_t limitKilobytes = 500 * 1024;
+  constexpr size_t expectedBytes = 500 * 1024 * 1024;
+
+  QCOMPARE(Client::clipboardReceiveLimitBytes(limitKilobytes), expectedBytes);
+}
+
 QTEST_MAIN(ServerProxyTests)
