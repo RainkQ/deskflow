@@ -454,7 +454,7 @@ void ServerConfigDialog::loadFromConfig()
   }
 }
 
-void ServerConfigDialog::initConnections() const
+void ServerConfigDialog::initConnections()
 {
   connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &ServerConfigDialog::accept);
   connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &ServerConfigDialog::reject);

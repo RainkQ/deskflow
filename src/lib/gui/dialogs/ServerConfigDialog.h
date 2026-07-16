@@ -91,7 +91,7 @@ protected:
 
 private:
   void loadFromConfig();
-  void initConnections() const;
+  void initConnections();
   std::unique_ptr<Ui::ServerConfigDialog> ui;
   QString m_message = "";
   int m_columns;
