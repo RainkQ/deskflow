@@ -34,6 +34,9 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <AppKit/NSRunningApplication.h>
+#include <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <dispatch/dispatch.h>
@@ -358,7 +361,7 @@ uint32_t OSXScreen::registerHotKey(KeyID key, KeyModifierMask mask)
     return 0;
   }
 
-  m_hotKeys.insert(std::make_pair(id, HotKeyItem(ref, macKey, macMask)));
+  m_hotKeys.try_emplace(id, HotKeyItem(ref, macKey, macMask));
 
   LOG_DEBUG(
       "registered hotkey %s (id=%04x mask=%04x) as id=%d", deskflow::KeyMap::formatKey(key, mask).c_str(), key, mask, id
@@ -553,6 +556,75 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
   CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
   CGEventSetFlags(event, modifiers);
 
+  // On mouse down, activate the window under the cursor.
+  // macOS 27 beta ignores synthetic CGEvent clicks for window activation
+  // in content areas, so we must activate before posting.
+  // We only activate when the frontmost window at click position has
+  // kCGWindowLayer == 0 (normal content window).  Higher layer values
+  // indicate menus, popovers, menu bar, and other system UI that must
+  // not be disturbed by activation during tracking.
+  if (press) {
+    @try {
+      pid_t bestPid = 0;
+      int32_t bestLayer = INT32_MAX;
+      CFArrayRef windows = CGWindowListCopyWindowInfo(
+          kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+      if (windows) {
+        CFIndex count = CFArrayGetCount(windows);
+        for (CFIndex i = 0; i < count; ++i) {
+          CFDictionaryRef win = (CFDictionaryRef)CFArrayGetValueAtIndex(windows, i);
+          int32_t layer = 0;
+          CFNumberRef layerNum = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowLayer);
+          if (layerNum) CFNumberGetValue(layerNum, kCFNumberSInt32Type, &layer);
+          if (layer < 0) continue;
+
+          CGRect bounds = {};
+          CFDictionaryRef boundsDict = (CFDictionaryRef)CFDictionaryGetValue(win, kCGWindowBounds);
+          if (boundsDict && CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds)) {
+            if (CGRectContainsPoint(bounds, pos) && layer < bestLayer) {
+              CFNumberRef pidNum = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowOwnerPID);
+              pid_t candidatePid = 0;
+              if (pidNum)
+                CFNumberGetValue(pidNum, kCFNumberIntType, &candidatePid);
+              if (candidatePid > 0) {
+                bestPid = candidatePid;
+                bestLayer = layer;
+              }
+            }
+          }
+        }
+        CFRelease(windows);
+      }
+
+      // Only activate content windows (layer == 0).
+      // Menus have layer >= 3 (NSPopUpMenuWindowLevel = 101,
+      // NSMainMenuWindowLevel = 24); activating during menu tracking
+      // would steal focus and close the menu.
+      if (bestPid > 0 && bestLayer == 0) {
+        NSRunningApplication *app =
+            [NSRunningApplication runningApplicationWithProcessIdentifier:bestPid];
+        if (![app activateWithOptions:NSApplicationActivateIgnoringOtherApps]) {
+          static void (*SLPSSetFrontProcessWithOptions)(
+              const ProcessSerialNumber *, uint32_t) = nullptr;
+          static dispatch_once_t once;
+          dispatch_once(&once, ^{
+            void *sky = dlopen(
+                "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW);
+            if (sky)
+              SLPSSetFrontProcessWithOptions =
+                  (void (*)(const ProcessSerialNumber *, uint32_t))
+                  dlsym(sky, "SLPSSetFrontProcessWithOptions");
+          });
+          ProcessSerialNumber psn = {0, kNoProcess};
+          if (GetProcessForPID(bestPid, &psn) == noErr && SLPSSetFrontProcessWithOptions)
+            SLPSSetFrontProcessWithOptions(&psn, 0);
+        }
+      }
+    } @catch (NSException *e) {
+      // Best-effort
+    }
+  }
+
   m_buttonState.set(index, state);
   CGEventPost(kCGHIDEventTap, event);
 
@@ -684,10 +756,12 @@ void OSXScreen::enable()
   } else {
     // FIXME -- prevent system from entering power save mode
 
-    hideCursor();
+    if (!m_keepCursorOnLeave) {
+      hideCursor();
 
-    // warp the mouse to the cursor center
-    fakeMouseMove(m_xCenter, m_yCenter);
+      // warp the mouse to the cursor center
+      fakeMouseMove(m_xCenter, m_yCenter);
+    }
 
     // there may be a better way to do this, but we register an event handler even if we're
     // not on the primary display (acting as a client). This way, if a local event comes in
@@ -794,12 +868,14 @@ bool OSXScreen::canLeave()
 
 void OSXScreen::leave()
 {
-  hideCursor();
+  if (!m_keepCursorOnLeave) {
+    hideCursor();
 
-  if (m_isPrimary) {
-    avoidHesitatingCursor();
-    LOG_VERBOSE("centering cursor on leave: %+d, %+d", m_xCenter, m_yCenter);
-    warpCursor(m_xCenter, m_yCenter);
+    if (m_isPrimary) {
+      avoidHesitatingCursor();
+      LOG_VERBOSE("centering cursor on leave: %+d, %+d", m_xCenter, m_yCenter);
+      warpCursor(m_xCenter, m_yCenter);
+    }
   }
 
   // now off screen
@@ -851,12 +927,17 @@ void OSXScreen::screensaver(bool activate)
 
 void OSXScreen::resetOptions()
 {
-  // no options
+  m_keepCursorOnLeave = false;
 }
 
-void OSXScreen::setOptions(const OptionsList &)
+void OSXScreen::setOptions(const OptionsList &options)
 {
-  // no options
+  for (uint32_t i = 0, n = options.size(); i < n; i += 2) {
+    if (options[i] == kOptionKeepCursorOnLeave) {
+      m_keepCursorOnLeave = (options[i + 1] != 0);
+      LOG_VERBOSE("keep cursor on leave: %s", m_keepCursorOnLeave ? "true" : "false");
+    }
+  }
 }
 
 void OSXScreen::setSequenceNumber(uint32_t seqNum)

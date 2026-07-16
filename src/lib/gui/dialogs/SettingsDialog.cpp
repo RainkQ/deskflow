@@ -126,11 +126,11 @@ void SettingsDialog::initConnections() const
   connect(ui->comboLanguage, &QComboBox::currentIndexChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->rbAutoHide, &QRadioButton::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbPreventSleep, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbKeepCursorOnLeave, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->rbCloseToTray, &QRadioButton::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbElevateDaemon, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbAutoUpdate, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbGuiDebug, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
-  connect(ui->cbUseWlClipboard, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbShowVersion, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbRequireClientCert, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->groupLogToFile, &QGroupBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
@@ -201,19 +201,19 @@ void SettingsDialog::showReadOnlyMessage()
 
 void SettingsDialog::updateText()
 {
-  const auto logLevelNames = LogLevel::logLevelNames();
+  const auto logLevels = LogLevel::logLevelNames().count();
   const QStringList toolTips = {tr("Required messages"),        tr("Non-fatal errors"), tr("General warnings"),
                                 tr("General events [Default]"), tr("Debug entries"),    tr("Verbose debug output")};
   if (ui->comboLogLevel->count() == 0) {
     const auto logLevelOptions = LogLevel::logLevelOptions();
-    for (int i = 0; i < logLevelNames.count(); i++) {
-      ui->comboLogLevel->addItem(logLevelNames.at(i));
+    for (int i = 0; i < logLevels; i++) {
+      ui->comboLogLevel->addItem(LogLevel::toString(i));
       ui->comboLogLevel->setItemData(i, logLevelOptions.at(i), Qt::UserRole);
       ui->comboLogLevel->setItemData(i, toolTips.at(i), Qt::ToolTipRole);
     }
   } else {
-    for (int i = 0; i < logLevelNames.count(); i++) {
-      ui->comboLogLevel->setItemData(i, logLevelNames.at(i), Qt::DisplayRole);
+    for (int i = 0; i < logLevels; i++) {
+      ui->comboLogLevel->setItemData(i, LogLevel::toString(i), Qt::DisplayRole);
       ui->comboLogLevel->setItemData(i, toolTips.at(i), Qt::ToolTipRole);
     }
   }
@@ -234,6 +234,7 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Gui::Autohide, ui->rbAutoHide->isChecked());
   Settings::setValue(Settings::Gui::AutoUpdateCheck, ui->cbAutoUpdate->isChecked());
   Settings::setValue(Settings::Core::PreventSleep, ui->cbPreventSleep->isChecked());
+  Settings::setValue(Settings::Client::KeepCursorOnLeave, ui->cbKeepCursorOnLeave->isChecked());
   Settings::setValue(Settings::Security::Certificate, ui->lineTlsCertPath->text());
   Settings::setValue(Settings::Security::KeySize, ui->comboTlsKeyLength->currentText().toInt());
   Settings::setValue(Settings::Security::TlsEnabled, ui->groupSecurity->isChecked());
@@ -242,7 +243,6 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Security::CheckPeers, ui->cbRequireClientCert->isChecked());
   Settings::setValue(Settings::Core::Language, I18N::nativeTo639Name(ui->comboLanguage->currentText()));
   Settings::setValue(Settings::Log::GuiDebug, ui->cbGuiDebug->isChecked());
-  Settings::setValue(Settings::Core::UseWlClipboard, ui->cbUseWlClipboard->isChecked());
   Settings::setValue(Settings::Gui::ShowVersionInTitle, ui->cbShowVersion->isChecked());
   Settings::setValue(Settings::Core::EnableEnterCommand, ui->cbRunEnterCommand->isChecked());
   Settings::setValue(Settings::Core::EnableExitCommand, ui->cbRunExitCommand->isChecked());
@@ -268,10 +268,10 @@ void SettingsDialog::loadFromConfig()
   ui->groupLogToFile->setChecked(Settings::value(Settings::Log::ToFile).toBool());
   ui->lineLogFilename->setText(Settings::value(Settings::Log::File).toString());
   ui->cbPreventSleep->setChecked(Settings::value(Settings::Core::PreventSleep).toBool());
+  ui->cbKeepCursorOnLeave->setChecked(Settings::value(Settings::Client::KeepCursorOnLeave).toBool());
   ui->cbElevateDaemon->setChecked(Settings::value(Settings::Daemon::Elevate).toBool());
   ui->cbAutoUpdate->setChecked(Settings::value(Settings::Gui::AutoUpdateCheck).toBool());
   ui->cbGuiDebug->setChecked(Settings::value(Settings::Log::GuiDebug).toBool());
-  ui->cbUseWlClipboard->setChecked(Settings::value(Settings::Core::UseWlClipboard).toBool());
   ui->cbShowVersion->setChecked(Settings::value(Settings::Gui::ShowVersionInTitle).toBool());
   ui->cbRunEnterCommand->setChecked(Settings::value(Settings::Core::EnableEnterCommand).toBool());
   ui->cbRunExitCommand->setChecked(Settings::value(Settings::Core::EnableExitCommand).toBool());
@@ -402,14 +402,6 @@ void SettingsDialog::updateControls()
     ui->groupService->setVisible(false);
   }
 
-  // wl-clipboard support only works on wayland.
-  // options should only be available when we are *not* running on wayland.
-  if (deskflow::platform::isWayland()) {
-    ui->cbUseWlClipboard->setEnabled(writable);
-  } else if (ui->widgetWlClipboard->isVisibleTo(ui->tabAdvanced)) {
-    ui->widgetWlClipboard->setVisible(false);
-  }
-
   ui->widgetLogFilename->setEnabled(writable && logToFile);
 
   updateTlsControls();
@@ -443,7 +435,6 @@ bool SettingsDialog::isModified() const
       (ui->cbElevateDaemon->isChecked() != Settings::value(Settings::Daemon::Elevate).toBool()) ||
       (ui->cbAutoUpdate->isChecked() != Settings::value(Settings::Gui::AutoUpdateCheck).toBool()) ||
       (ui->cbGuiDebug->isChecked() != Settings::value(Settings::Log::GuiDebug).toBool()) ||
-      (ui->cbUseWlClipboard->isChecked() != Settings::value(Settings::Core::UseWlClipboard).toBool()) ||
       (ui->cbShowVersion->isChecked() != Settings::value(Settings::Gui::ShowVersionInTitle).toBool()) ||
       (ui->rbIconMono->isChecked() != Settings::value(Settings::Gui::SymbolicTrayIcon).toBool()) ||
       (ui->groupService->isChecked() != (processMode == Settings::ProcessMode::Service)) ||
@@ -479,7 +470,6 @@ bool SettingsDialog::isDefault() const
       (ui->cbElevateDaemon->isChecked() == Settings::defaultValue(Settings::Daemon::Elevate).toBool()) &&
       (ui->cbAutoUpdate->isChecked() == Settings::defaultValue(Settings::Gui::AutoUpdateCheck).toBool()) &&
       (ui->cbGuiDebug->isChecked() == Settings::defaultValue(Settings::Log::GuiDebug).toBool()) &&
-      (ui->cbUseWlClipboard->isChecked() == Settings::defaultValue(Settings::Core::UseWlClipboard).toBool()) &&
       (ui->cbShowVersion->isChecked() == Settings::defaultValue(Settings::Gui::ShowVersionInTitle).toBool()) &&
       (ui->rbIconMono->isChecked() == Settings::defaultValue(Settings::Gui::SymbolicTrayIcon).toBool()) &&
       (ui->groupService->isChecked() == (processMode == Settings::ProcessMode::Service)) &&
@@ -508,7 +498,6 @@ void SettingsDialog::resetToDefault()
   ui->cbElevateDaemon->setChecked(Settings::defaultValue(Settings::Daemon::Elevate).toBool());
   ui->cbAutoUpdate->setChecked(Settings::defaultValue(Settings::Gui::AutoUpdateCheck).toBool());
   ui->cbGuiDebug->setChecked(Settings::defaultValue(Settings::Log::GuiDebug).toBool());
-  ui->cbUseWlClipboard->setChecked(Settings::defaultValue(Settings::Core::UseWlClipboard).toBool());
   ui->cbShowVersion->setChecked(Settings::defaultValue(Settings::Gui::ShowVersionInTitle).toBool());
   ui->cbRunEnterCommand->setChecked(Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool());
   ui->cbRunExitCommand->setChecked(Settings::defaultValue(Settings::Core::EnableExitCommand).toBool());

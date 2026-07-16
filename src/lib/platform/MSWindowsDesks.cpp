@@ -182,6 +182,7 @@ void MSWindowsDesks::resetOptions()
 {
   m_leaveForegroundOption = false;
   m_relativeMouseMoves = false;
+  m_keepCursorOnLeave = false;
   for (auto &entry : m_desks) {
     entry.second->m_hasRelativeRestorePosition = false;
   }
@@ -195,6 +196,9 @@ void MSWindowsDesks::setOptions(const OptionsList &options)
       LOG_VERBOSE("%s the foreground window", m_leaveForegroundOption ? "don\'t grab" : "grab");
     } else if (options[i] == kOptionRelativeMouseMoves) {
       m_relativeMouseMoves = (options[i + 1] != 0);
+    } else if (options[i] == kOptionKeepCursorOnLeave) {
+      m_keepCursorOnLeave = (options[i + 1] != 0);
+      LOG_VERBOSE("keep cursor on leave: %s", m_keepCursorOnLeave ? "true" : "false");
     }
   }
 }
@@ -565,84 +569,86 @@ void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
     saveRelativeRestorePosition(desk);
   }
 
-  setCursorVisibility(false);
+  if (!m_keepCursorOnLeave) {
+    setCursorVisibility(false);
 
-  if (m_isPrimary) {
-    // map a window to hide the cursor and to use whatever keyboard
-    // layout we choose rather than the keyboard layout of the last
-    // active window.
-    int x, y, w, h;
-    if (desk->m_lowLevel) {
-      // with a low level hook the cursor will never budge so
-      // just a 1x1 window is sufficient.
-      x = m_xCenter;
-      y = m_yCenter;
-      w = 1;
-      h = 1;
-    } else {
-      // with regular hooks the cursor will jitter as it's moved
-      // by the user then back to the center by us.  to be sure
-      // we never lose it, cover all the monitors with the window.
-      x = m_x;
-      y = m_y;
-      w = m_w;
-      h = m_h;
-    }
-    SetWindowPos(desk->m_window, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-    // switch to requested keyboard layout
-    ActivateKeyboardLayout(keyLayout, 0);
-
-    // if not using low-level hooks we have to also activate the
-    // window to ensure we don't lose keyboard focus.
-    // FIXME -- see if this can be avoided.  if so then always
-    // disable the window (see handling of DESKFLOW_MSG_SWITCH).
-    if (!desk->m_lowLevel) {
-      SetActiveWindow(desk->m_window);
-    }
-
-    // if using low-level hooks then disable the foreground window
-    // so it can't mess up any of our keyboard events.  the console
-    // program, for example, will cause characters to be reported as
-    // unshifted, regardless of the shift key state.  interestingly
-    // we do see the shift key go down and up.
-    //
-    // note that we must enable the window to activate it and we
-    // need to disable the window on deskEnter.
-    else {
-      desk->m_foregroundWindow = getForegroundWindow();
-      if (desk->m_foregroundWindow != nullptr) {
-        EnableWindow(desk->m_window, TRUE);
-        SetActiveWindow(desk->m_window);
-        DWORD thisThread = GetWindowThreadProcessId(desk->m_window, nullptr);
-        DWORD thatThread = GetWindowThreadProcessId(desk->m_foregroundWindow, nullptr);
-
-        AttachThreadInput(thatThread, thisThread, TRUE);
-        SetForegroundWindow(desk->m_window);
-        AttachThreadInput(thatThread, thisThread, FALSE);
+    if (m_isPrimary) {
+      // map a window to hide the cursor and to use whatever keyboard
+      // layout we choose rather than the keyboard layout of the last
+      // active window.
+      int x, y, w, h;
+      if (desk->m_lowLevel) {
+        // with a low level hook the cursor will never budge so
+        // just a 1x1 window is sufficient.
+        x = m_xCenter;
+        y = m_yCenter;
+        w = 1;
+        h = 1;
+      } else {
+        // with regular hooks the cursor will jitter as it's moved
+        // by the user then back to the center by us.  to be sure
+        // we never lose it, cover all the monitors with the window.
+        x = m_x;
+        y = m_y;
+        w = m_w;
+        h = m_h;
       }
+      SetWindowPos(desk->m_window, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+      // switch to requested keyboard layout
+      ActivateKeyboardLayout(keyLayout, 0);
+
+      // if not using low-level hooks we have to also activate the
+      // window to ensure we don't lose keyboard focus.
+      // FIXME -- see if this can be avoided.  if so then always
+      // disable the window (see handling of DESKFLOW_MSG_SWITCH).
+      if (!desk->m_lowLevel) {
+        SetActiveWindow(desk->m_window);
+      }
+
+      // if using low-level hooks then disable the foreground window
+      // so it can't mess up any of our keyboard events.  the console
+      // program, for example, will cause characters to be reported as
+      // unshifted, regardless of the shift key state.  interestingly
+      // we do see the shift key go down and up.
+      //
+      // note that we must enable the window to activate it and we
+      // need to disable the window on deskEnter.
+      else {
+        desk->m_foregroundWindow = getForegroundWindow();
+        if (desk->m_foregroundWindow != nullptr) {
+          EnableWindow(desk->m_window, TRUE);
+          SetActiveWindow(desk->m_window);
+          DWORD thisThread = GetWindowThreadProcessId(desk->m_window, nullptr);
+          DWORD thatThread = GetWindowThreadProcessId(desk->m_foregroundWindow, nullptr);
+
+          AttachThreadInput(thatThread, thisThread, TRUE);
+          SetForegroundWindow(desk->m_window);
+          AttachThreadInput(thatThread, thisThread, FALSE);
+        }
+      }
+    } else {
+      // move hider window under the cursor center, raise, and show it
+      SetWindowPos(desk->m_window, HWND_TOP, m_xCenter, m_yCenter, 1, 1, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+      // watch for mouse motion.  if we see any then we hide the
+      // hider window so the user can use the physically attached
+      // mouse if desired.  we'd rather not capture the mouse but
+      // we aren't notified when the mouse leaves our window.
+      SetCapture(desk->m_window);
+
+      // windows can take a while to hide the cursor, so wait a few milliseconds to ensure the cursor
+      // is hidden before centering. this doesn't seem to affect the fluidity of the transition.
+      // without this, the cursor appears to flicker in the center of the screen which is annoying.
+      // a slightly more elegant but complex solution could be to use a timed event.
+      // 30 ms seems to work well enough without making the transition feel janky; a lower number
+      // would be better but 10 ms doesn't seem to be quite long enough, as we get noticeable flicker.
+      // this is largely a balance and out of our control, since windows can be unpredictable...
+      // maybe another approach would be to repeatedly check the cursor visibility until it is hidden.
+      LOG_VERBOSE("centering cursor on leave: %+d,%+d", m_xCenter, m_yCenter);
+      ARCH->sleep(0.03);
+      deskMouseMove(m_xCenter, m_yCenter);
     }
-  } else {
-    // move hider window under the cursor center, raise, and show it
-    SetWindowPos(desk->m_window, HWND_TOP, m_xCenter, m_yCenter, 1, 1, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-    // watch for mouse motion.  if we see any then we hide the
-    // hider window so the user can use the physically attached
-    // mouse if desired.  we'd rather not capture the mouse but
-    // we aren't notified when the mouse leaves our window.
-    SetCapture(desk->m_window);
-
-    // windows can take a while to hide the cursor, so wait a few milliseconds to ensure the cursor
-    // is hidden before centering. this doesn't seem to affect the fluidity of the transition.
-    // without this, the cursor appears to flicker in the center of the screen which is annoying.
-    // a slightly more elegant but complex solution could be to use a timed event.
-    // 30 ms seems to work well enough without making the transition feel janky; a lower number
-    // would be better but 10 ms doesn't seem to be quite long enough, as we get noticeable flicker.
-    // this is largely a balance and out of our control, since windows can be unpredictable...
-    // maybe another approach would be to repeatedly check the cursor visibility until it is hidden.
-    LOG_VERBOSE("centering cursor on leave: %+d,%+d", m_xCenter, m_yCenter);
-    ARCH->sleep(0.03);
-    deskMouseMove(m_xCenter, m_yCenter);
   }
 }
 
@@ -806,7 +812,7 @@ MSWindowsDesks::Desk *MSWindowsDesks::addDesk(const std::wstring &name, HDESK hd
   desk->m_targetID = GetCurrentThreadId();
   desk->m_thread = new Thread(new TMethodJob<MSWindowsDesks>(this, &MSWindowsDesks::deskThread, desk));
   waitForDesk();
-  m_desks.insert(std::make_pair(name, desk));
+  m_desks.try_emplace(name, desk);
   return desk;
 }
 

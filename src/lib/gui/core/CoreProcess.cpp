@@ -405,6 +405,15 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 
   qDebug().noquote() << "log level:" << Settings::logLevelText();
 
+  // Pass keep-cursor-on-leave preference to core process via environment variable
+  if (m_mode == Settings::CoreMode::Client) {
+    // Defaults to true: keep cursor visible when mouse leaves screen.
+    // Set client/keepCursorOnLeave=false in config to disable.
+    const auto keepCursor = Settings::value(Settings::Client::KeepCursorOnLeave);
+    const bool enabled = keepCursor.isNull() ? true : keepCursor.toBool();
+    qputenv("DESKFLOW_KEEP_CURSOR_ON_LEAVE", enabled ? "1" : "0");
+  }
+
   if (Settings::value(Settings::Log::ToFile).toBool()) {
     const auto logFile = Settings::value(Settings::Log::File).toString();
     QDir(QFileInfo(logFile).absolutePath()).mkpath(".");
