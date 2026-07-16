@@ -16,6 +16,7 @@
 #include "common/NetworkProtocol.h"
 #include "common/Settings.h"
 #include "deskflow/Clipboard.h"
+#include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/OptionTypes.h"
 #include "deskflow/PacketStreamFilter.h"
@@ -38,6 +39,19 @@
 // Client
 //
 
+Client::DisconnectRequest::DisconnectRequest(Kind kind, const char *message)
+    : m_kind(kind),
+      m_message(message != nullptr ? message : "")
+{
+}
+
+Client::DisconnectRequest::DisconnectRequest(deskflow::core::ConnectionRefusal reason, const char *message)
+    : m_kind(Kind::Refuse),
+      m_refusalReason(reason),
+      m_message(message != nullptr ? message : "")
+{
+}
+
 Client::Client(
     IEventQueue *events, const std::string &name, const NetworkAddress &address, ISocketFactory *socketFactory,
     deskflow::Screen *screen
@@ -47,7 +61,10 @@ Client::Client(
       m_socketFactory(socketFactory),
       m_screen(screen),
       m_events(events),
-      m_useSecureNetwork(Settings::value(Settings::Security::TlsEnabled).toBool())
+      m_useSecureNetwork(Settings::value(Settings::Security::TlsEnabled).toBool()),
+      m_maximumClipboardReceiveSize(
+          static_cast<size_t>(Settings::value(Settings::Server::ClipboardSize).toUInt()) * 1024 * 1024
+      )
 {
   assert(m_socketFactory != nullptr);
   assert(m_screen != nullptr);
@@ -177,6 +194,11 @@ NetworkAddress Client::getServerAddress() const
   return m_serverAddress;
 }
 
+size_t Client::getMaximumClipboardReceiveSizeBytes() const
+{
+  return m_maximumClipboardReceiveSize;
+}
+
 void *Client::getEventTarget() const
 {
   return m_screen->getEventTarget();
@@ -303,6 +325,11 @@ void Client::resetOptions()
 
 void Client::setOptions(const OptionsList &options)
 {
+  if (options.size() % 2 != 0) {
+    LOG_ERR("options are the incorrect size, can not process them");
+    return;
+  }
+
   for (auto index = options.begin(); index != options.end(); ++index) {
     const OptionID id = *index;
     if (id == kOptionClipboardSharing) {
@@ -441,6 +468,9 @@ void Client::setupConnection()
 {
   assert(m_stream != nullptr);
 
+  m_events->addHandler(EventTypes::ClientDisconnectRequested, m_stream->getEventTarget(), [this](const auto &e) {
+    handleDisconnectRequested(e);
+  });
   m_events->addHandler(EventTypes::SocketDisconnected, m_stream->getEventTarget(), [this](const auto &) {
     handleDisconnected();
   });
@@ -492,6 +522,7 @@ void Client::cleanupConnecting()
 {
   if (m_stream != nullptr) {
     m_events->removeHandler(EventTypes::DataSocketConnected, m_stream->getEventTarget());
+    m_events->removeHandler(EventTypes::DataSocketSecureConnected, m_stream->getEventTarget());
     m_events->removeHandler(EventTypes::DataSocketConnectionFailed, m_stream->getEventTarget());
   }
 }
@@ -505,6 +536,7 @@ void Client::cleanupConnection()
     m_events->removeHandler(StreamInputShutdown, m_stream->getEventTarget());
     m_events->removeHandler(StreamOutputShutdown, m_stream->getEventTarget());
     m_events->removeHandler(SocketDisconnected, m_stream->getEventTarget());
+    m_events->removeHandler(ClientDisconnectRequested, m_stream->getEventTarget());
     cleanupStream();
   }
 }
@@ -592,6 +624,21 @@ void Client::handleDisconnected()
   sendEvent(EventTypes::ClientDisconnected);
 }
 
+void Client::handleDisconnectRequested(const Event &event)
+{
+  const auto *request = static_cast<const DisconnectRequest *>(event.getDataObject());
+  if (request == nullptr) {
+    disconnect(nullptr);
+    return;
+  }
+
+  if (request->kind() == DisconnectRequest::Kind::Refuse) {
+    refuseConnection(request->refusalReason(), request->message());
+  } else {
+    disconnect(request->message());
+  }
+}
+
 void Client::handleShapeChanged()
 {
   LOG_DEBUG("resolution changed");
@@ -642,14 +689,29 @@ void Client::handleHello()
     return;
   }
 
-  LOG_DEBUG(
-      "saying hello back with version %s %d.%d", protocolName.c_str(), kProtocolMajorVersion, kProtocolMinorVersion
-  );
+  if (serverMajor != kProtocolMajorVersion) {
+    LOG_WARN("server protocol version not compatible: %d.%d", serverMajor, serverMinor);
+    sendConnectionFailedEvent(IncompatibleClientException(serverMajor, serverMinor).what());
+    cleanupTimer();
+    cleanupConnection();
+    return;
+  }
+
+  int16_t helloBackMinor = kProtocolMinorVersion;
+  if (serverMinor < kProtocolMinorVersion) {
+    helloBackMinor = serverMinor;
+    LOG_INFO(
+        "downgrading client protocol version from %d.%d to %d.%d", //
+        kProtocolMajorVersion, kProtocolMinorVersion, kProtocolMajorVersion, helloBackMinor
+    );
+  }
+
+  LOG_DEBUG("saying hello back with version %s %d.%d", protocolName.c_str(), kProtocolMajorVersion, helloBackMinor);
 
   // dynamically build write format for hello back since `ProtocolUtil::writef`
   // doesn't support formatting fixed length strings yet.
   std::string helloBackMessage = protocolName + kMsgHelloBackArgs;
-  ProtocolUtil::writef(m_stream, helloBackMessage.c_str(), kProtocolMajorVersion, kProtocolMinorVersion, &m_name);
+  ProtocolUtil::writef(m_stream, helloBackMessage.c_str(), kProtocolMajorVersion, helloBackMinor, &m_name);
 
   // now connected but waiting to complete handshake
   setupScreen();
